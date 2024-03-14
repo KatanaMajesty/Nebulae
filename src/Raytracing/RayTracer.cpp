@@ -6,3 +6,7 @@ RayTracer::RayTracer(HWND hwnd)
         })
 {
 }
+
+void RayTracer::Render()
+{
+}

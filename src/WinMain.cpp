@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+#include "Raytracing/RayTracer.h"
 #include "Win.h"
 
 struct WIN32Console
@@ -68,6 +69,9 @@ INT WINAPI WinMain(
     }
 
     ShowWindow(hwnd, nShowCmd);
+
+    // TODO: Tmp here just to check if works
+    RayTracer rayTracer(hwnd);
 
     MSG msg = {};
     while (msg.message != WM_QUIT)
