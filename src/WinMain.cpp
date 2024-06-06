@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#include "Raytracing/RayTracer.h"
+#include "Nebulae.h"
 #include "Win.h"
 
 struct WIN32Console
@@ -71,7 +71,7 @@ INT WINAPI WinMain(
     ShowWindow(hwnd, nShowCmd);
 
     // TODO: Tmp here just to check if works
-    RayTracer rayTracer(hwnd);
+    Neb::Nebulae nebulae(hwnd);
 
     MSG msg = {};
     while (msg.message != WM_QUIT)
