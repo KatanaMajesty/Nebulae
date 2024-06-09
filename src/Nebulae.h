@@ -3,6 +3,7 @@
 #include "nri/Manager.h"
 #include "nri/Shader.h"
 #include "nri/ShaderCompiler.h"
+#include "nri/Swapchain.h"
 
 namespace Neb
 {
@@ -16,16 +17,20 @@ namespace Neb
     class Nebulae
     {
     public:
-        Nebulae(HWND hwnd);
+        Nebulae() = default;
 
         Nebulae(const Nebulae&) = delete;
         Nebulae& operator=(const Nebulae&) = delete;
 
+        BOOL Init(HWND hwnd);
+        void Resize(UINT width, UINT height);
         void Render();
 
     private:
-        nri::Manager m_nriManager;
         nri::ShaderCompiler m_shaderCompiler;
+
+        nri::Manager m_nriManager;
+        nri::Swapchain m_swapchain;
     };
 
 }

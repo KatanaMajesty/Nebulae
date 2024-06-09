@@ -1,7 +1,13 @@
 #include <stdio.h>
 
+#include <filesystem>
+#include "common/Log.h"
 #include "Nebulae.h"
 #include "Win.h"
+
+// TODO: Temp -> to be moved to nebulae
+#include "core/GLTFScene.h"
+#include "core/GLTFSceneImporter.h"
 
 struct WIN32Console
 {
@@ -18,6 +24,26 @@ struct WIN32Console
 
     FILE* Stream = NULL;
 };
+
+std::filesystem::path GetModuleDirectory()
+{
+    char rawPath[MAX_PATH];
+
+    // this will always return null-termination character
+    if (GetModuleFileNameA(nullptr, rawPath, MAX_PATH) == MAX_PATH &&
+        GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+    {
+        // Handle insufficient buffer
+        throw std::runtime_error("Insufficient buffer space for path to be retrieved");
+        return {};
+    }
+
+    // This std::string constructor will seek for the null-termination character;
+    std::filesystem::path path = std::filesystem::path(std::string(rawPath));
+
+    // get directory now
+    return path.parent_path();
+}
 
 LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -70,8 +96,21 @@ INT WINAPI WinMain(
 
     ShowWindow(hwnd, nShowCmd);
 
-    // TODO: Tmp here just to check if works
-    Neb::Nebulae nebulae(hwnd);
+    // This code will be moved to Nebulae soon
+    static const std::filesystem::path AssetsDir = GetModuleDirectory().parent_path().parent_path().parent_path() / "assets";
+
+    Neb::GLTFSceneImporter importer;
+    if (!importer.ImportScenesFromFile(AssetsDir / "DamagedHelmet" / "DamagedHelmet.gltf"))
+    {
+        NEB_LOG_WARN("Failed to import the scene!\n");
+    }
+
+    Neb::Nebulae nebulae;
+    if (!nebulae.Init(hwnd))
+    {
+        NEB_LOG_ERROR("Failed to initialize nebulae\n");
+        return -1;
+    }
 
     MSG msg = {};
     while (msg.message != WM_QUIT)

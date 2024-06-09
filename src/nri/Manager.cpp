@@ -1,24 +1,17 @@
 #include "Manager.h"
 
-#include "../common/Defines.h"
-
 // Chill here for getting started -> https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component
 
 namespace Neb::nri
 {
 
-    Manager::Manager(const ManagerDesc& desc)
+    void Manager::Init()
     {
-        Init(desc);
-    }
-
-    void Manager::Init(const ManagerDesc& desc)
-    {
-        InitPipeline(desc);
+        InitPipeline();
     }
 
     // https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component#loadpipeline
-    void Manager::InitPipeline(const ManagerDesc& desc)
+    void Manager::InitPipeline()
     {
         // Enable the debug layer
         ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(m_debugInterface.ReleaseAndGetAddressOf())));
@@ -41,9 +34,6 @@ namespace Neb::nri
 
         // Fill out a heap description. then create a descriptor heap
         InitDescriptorHeaps();
-
-        // Fill out a swapchain description, then create the swap chain
-        InitSwapchain(desc.Handle);
 
         InitResourceAllocator();
     }
@@ -170,19 +160,6 @@ namespace Neb::nri
         {
             D3D12_DESCRIPTOR_HEAP_TYPE type = (D3D12_DESCRIPTOR_HEAP_TYPE)i;
             m_descriptorHeaps[i].Init(GetDevice(), NumDescriptors[type], type, Flags[type]);
-        }
-    }
-
-    void Manager::InitSwapchain(HWND hwnd)
-    {
-        if (!m_swapchain.Init(hwnd, 
-            m_device, 
-            m_dxgiFactory, 
-            m_graphicsQueue, 
-            &m_descriptorHeaps[D3D12_DESCRIPTOR_HEAP_TYPE_RTV]))
-        {
-            NEB_ASSERT_MSG(FALSE, "Failed to initialize swapchain!");
-            return;
         }
     }
 

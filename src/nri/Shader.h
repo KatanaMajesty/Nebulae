@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../nri/stdafx.h"
+#include "stdafx.h"
 #include <dxcapi.h>
 
 // https://developer.nvidia.com/dx12-dos-and-donts

@@ -1,22 +1,27 @@
 #pragma once
 
+#include "stdafx.h" // Include before memory allocator
 #include <D3D12MA/D3D12MemAlloc.h>
-#include "stdafx.h"
+#include <memory>
+
 #include "DescriptorHeap.h"
-#include "Swapchain.h"
 
 namespace Neb::nri
 {
 
-    struct ManagerDesc
-    {
-        HWND Handle = NULL;
-    };
-
     class Manager
     {
     public:
-        Manager(const ManagerDesc& desc);
+        Manager() = default;
+
+        Manager(const Manager&) = delete;
+        Manager& operator=(const Manager&) = delete;
+    
+        // Main member-function. Initializes the entire manager (device)
+        void Init();
+
+        // Helper calls
+        IDXGIFactory6* GetDxgiFactory() { return m_dxgiFactory.Get(); }
 
         // General D3D12-related calls
         ID3D12Device* GetDevice() { return m_device.Get(); }
@@ -32,20 +37,15 @@ namespace Neb::nri
         DescriptorHeap& GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE type) { return m_descriptorHeaps[type]; }
         const DescriptorHeap& GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE type) const { return m_descriptorHeaps[type]; }
 
-        // Swapchain-related calls
-        Swapchain& GetSwapchain() { return m_swapchain; }
-        const Swapchain& GetSwapchain() const { return m_swapchain; }
-
         // Resource-management calls
         D3D12MA::Allocator* GetResourceAllocator() { return m_D3D12Allocator.Get(); }
 
     private:
         // All-in-One initialization of D3D12 stuff
         // Below these init functions goes raw D3D12 functions
-        void Init(const ManagerDesc& desc);
-        void InitPipeline(const ManagerDesc& desc);
+        void InitPipeline();
 
-        D3D12Rc<ID3D12Debug1>  m_debugInterface;
+        D3D12Rc<ID3D12Debug1> m_debugInterface;
         D3D12Rc<IDXGIFactory6> m_dxgiFactory;
 
         // Most suitable adapter for device creation
@@ -66,9 +66,6 @@ namespace Neb::nri
 
         void InitDescriptorHeaps();
         DescriptorHeap m_descriptorHeaps[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES];
-
-        void InitSwapchain(HWND hwnd);
-        Swapchain m_swapchain;
 
         void InitResourceAllocator();
         D3D12Rc<D3D12MA::Allocator> m_D3D12Allocator;

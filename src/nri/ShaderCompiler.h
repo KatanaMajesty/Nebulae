@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../nri/stdafx.h"
+#include "stdafx.h"
 #include <dxcapi.h>
 #include <string>
 #include <string_view>
