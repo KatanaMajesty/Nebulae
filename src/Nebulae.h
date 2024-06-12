@@ -5,6 +5,9 @@
 #include "nri/ShaderCompiler.h"
 #include "nri/Swapchain.h"
 
+#include "core/GLTFScene.h"
+#include "core/GLTFSceneImporter.h"
+
 namespace Neb
 {
 
@@ -26,11 +29,16 @@ namespace Neb
         void Resize(UINT width, UINT height);
         void Render();
 
+        // TODO: Temporarily here, will be removed asap
+        GLTFSceneImporter& GetSceneImporter() { return m_sceneImporter; }
+
     private:
         nri::ShaderCompiler m_shaderCompiler;
 
         nri::Manager m_nriManager;
         nri::Swapchain m_swapchain;
+
+        GLTFSceneImporter m_sceneImporter;
     };
 
 }

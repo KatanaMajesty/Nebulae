@@ -27,10 +27,12 @@ namespace Neb::nri
         // Query appropriate dxgi adapter
         ThrowIfFalse(QueryMostSuitableDeviceAdapter());
 
-        ThrowIfFailed(D3D12CreateDevice(m_dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(m_device.ReleaseAndGetAddressOf())));
+        D3D12Rc<ID3D12Device> device;
+        ThrowIfFailed(D3D12CreateDevice(m_dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(device.GetAddressOf())));
+        ThrowIfFailed(device->QueryInterface(IID_PPV_ARGS(m_device.ReleaseAndGetAddressOf())));
 
-        // Fill out a command queue description, then create command queues
-        InitCommandQueuesAndAllocators();
+        // Fill out a command queue description, then create command queues, allocators and fences
+        InitCommandContexts();
 
         // Fill out a heap description. then create a descriptor heap
         InitDescriptorHeaps();
@@ -109,33 +111,38 @@ namespace Neb::nri
         return m_dxgiAdapter != NULL ? TRUE : FALSE;
     }
 
-    void Manager::InitCommandQueuesAndAllocators()
+    void Manager::InitCommandContexts()
     {
         D3D12_COMMAND_QUEUE_DESC graphicsQueueDesc = {};
         graphicsQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         graphicsQueueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
         graphicsQueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
         graphicsQueueDesc.NodeMask = 0;
-        ThrowIfFailed(m_device->CreateCommandQueue(&graphicsQueueDesc, IID_PPV_ARGS(m_graphicsQueue.ReleaseAndGetAddressOf())));
+        ThrowIfFailed(m_device->CreateCommandQueue(&graphicsQueueDesc, IID_PPV_ARGS(m_commandQueues[eCommandContextType_Graphics].ReleaseAndGetAddressOf())));
 
         D3D12_COMMAND_QUEUE_DESC copyQueueDesc = {};
         copyQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_COPY;
         copyQueueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
         copyQueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
         copyQueueDesc.NodeMask = 0;
-        ThrowIfFailed(m_device->CreateCommandQueue(&copyQueueDesc, IID_PPV_ARGS(m_copyQueue.ReleaseAndGetAddressOf())));
+        ThrowIfFailed(m_device->CreateCommandQueue(&copyQueueDesc, IID_PPV_ARGS(m_commandQueues[eCommandContextType_Copy].ReleaseAndGetAddressOf())));
 
         D3D12_COMMAND_QUEUE_DESC computeQueueDesc = {};
         computeQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
         computeQueueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
         computeQueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
         computeQueueDesc.NodeMask = 0;
-        ThrowIfFailed(m_device->CreateCommandQueue(&computeQueueDesc, IID_PPV_ARGS(m_computeQueue.ReleaseAndGetAddressOf())));
+        ThrowIfFailed(m_device->CreateCommandQueue(&computeQueueDesc, IID_PPV_ARGS(m_commandQueues[eCommandContextType_Compute].ReleaseAndGetAddressOf())));
 
         // Create command allocators for each type
-        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(m_graphicsCommandAllocator.ReleaseAndGetAddressOf())));
-        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(m_graphicsCommandAllocator.ReleaseAndGetAddressOf())));
-        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE, IID_PPV_ARGS(m_graphicsCommandAllocator.ReleaseAndGetAddressOf())));
+        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(m_commandAllocators[eCommandContextType_Graphics].ReleaseAndGetAddressOf())));
+        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(m_commandAllocators[eCommandContextType_Copy].ReleaseAndGetAddressOf())));
+        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE, IID_PPV_ARGS(m_commandAllocators[eCommandContextType_Compute].ReleaseAndGetAddressOf())));
+
+        std::memset(m_fenceValues, 0, sizeof(m_fenceValues));
+        ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fences[eCommandContextType_Graphics].ReleaseAndGetAddressOf())));
+        ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fences[eCommandContextType_Copy].ReleaseAndGetAddressOf())));
+        ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fences[eCommandContextType_Compute].ReleaseAndGetAddressOf())));
     }
 
     void Manager::InitDescriptorHeaps()

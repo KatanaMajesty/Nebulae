@@ -11,25 +11,28 @@
 namespace Neb::nri
 {
 
-    struct StaticVertex
+    enum EAttributeType
     {
-        Neb::Vec3 Position;
-        Neb::Vec3 Normal;
-        Neb::Vec2 TexCoords;
+        eAttributeType_Position = 0,
+        eAttributeType_Normal,
+        eAttributeType_TexCoords,
+        eAttributeType_NumTypes
     };
 
     struct StaticSubmesh
     {
-        // TODO: Do not overcomplicate for now with SoA, just go for AoS for easier ray tracing
-        // Just make it a plain mesh struct with no overdesigned methods for now
-        std::vector<StaticVertex> Vertices;
+        // Decided to go for SoA instead AoS, because its natively in glTF and is easier to parse that way
+        UINT NumVertices = 0;
+        std::array<std::vector<std::byte>, eAttributeType_NumTypes> Attributes;
+        std::array<size_t, eAttributeType_NumTypes> AttributeStrides;
+
+        std::array<D3D12Rc<ID3D12Resource>, eAttributeType_NumTypes> AttributeBuffers;
+        std::array<D3D12_VERTEX_BUFFER_VIEW, eAttributeType_NumTypes> AttributeViews = {};
 
         // Indices may be in uint16_t or uint32_t - we handle both cases here
+        UINT NumIndices = 0;
         std::vector<std::byte> Indices;
         size_t IndicesStride;
-
-        D3D12Rc<ID3D12Resource> VertexBuffer;
-        D3D12_VERTEX_BUFFER_VIEW VBView;
 
         D3D12Rc<ID3D12Resource> IndexBuffer;
         D3D12_INDEX_BUFFER_VIEW IBView;
@@ -49,7 +52,7 @@ namespace Neb::nri
             .SemanticIndex = 0,
             .Format = DXGI_FORMAT_R32G32B32_FLOAT,
             .InputSlot = 0,
-            .AlignedByteOffset = offsetof(StaticVertex, Position),
+            .AlignedByteOffset = 0,
             .InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
             .InstanceDataStepRate = 0,
         },
@@ -59,7 +62,7 @@ namespace Neb::nri
             .SemanticIndex = 0,
             .Format = DXGI_FORMAT_R32G32B32_FLOAT,
             .InputSlot = 1,
-            .AlignedByteOffset = offsetof(StaticVertex, Normal),
+            .AlignedByteOffset = 0,
             .InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
             .InstanceDataStepRate = 0,
         },
@@ -69,7 +72,7 @@ namespace Neb::nri
             .SemanticIndex = 0,
             .Format = DXGI_FORMAT_R32G32_FLOAT,
             .InputSlot = 2,
-            .AlignedByteOffset = offsetof(StaticVertex, TexCoords),
+            .AlignedByteOffset = 0,
             .InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
             .InstanceDataStepRate = 0,
         }

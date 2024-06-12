@@ -16,6 +16,8 @@ namespace Neb
             NEB_ASSERT(false); // failed to initialize the swapchain
             return FALSE;
         }
+
+        m_sceneImporter = GLTFSceneImporter(&m_nriManager);
         return TRUE;
     }
 

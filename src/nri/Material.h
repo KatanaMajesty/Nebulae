@@ -19,8 +19,8 @@ namespace Neb::nri
 
         // Material factors, act as texture replacements. 
         // If D3D12Rc of a respective texture is null - use them
-        Neb::Vec4 AlbedoFactor;
-        Neb::Vec2 RoughnessMetalnessFactor;
+        Neb::Vec4 AlbedoFactor = Neb::Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        Neb::Vec2 RoughnessMetalnessFactor = Neb::Vec2(1.0f, 0.0f);
     };
 
 }

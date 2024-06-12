@@ -9,6 +9,14 @@
 namespace Neb::nri
 {
 
+    enum ECommandContextType
+    {
+        eCommandContextType_Graphics = 0,
+        eCommandContextType_Copy,
+        eCommandContextType_Compute,
+        eCommandContextType_NumTypes,
+    };
+
     class Manager
     {
     public:
@@ -24,15 +32,14 @@ namespace Neb::nri
         IDXGIFactory6* GetDxgiFactory() { return m_dxgiFactory.Get(); }
 
         // General D3D12-related calls
-        ID3D12Device* GetDevice() { return m_device.Get(); }
+        ID3D12Device4* GetDevice() { return m_device.Get(); }
 
-        ID3D12CommandQueue* GetGraphicsQueue() { return m_graphicsQueue.Get(); }
-        ID3D12CommandQueue* GetCopyQueue() { return m_copyQueue.Get(); }
-        ID3D12CommandQueue* GetComputeQueue() { return m_computeQueue.Get(); }
-
-        ID3D12CommandAllocator* GetGraphicsCommandAllocator() { return m_graphicsCommandAllocator.Get(); }
-        ID3D12CommandAllocator* GetCopyCommandAllocator() { return m_copyCommandAllocator.Get(); }
-        ID3D12CommandAllocator* GetComputeCommandAllocator() { return m_graphicsCommandAllocator.Get(); }
+        // Command context related calls
+        ID3D12CommandQueue* GetCommandQueue(ECommandContextType contextType) { return m_commandQueues[contextType].Get(); }
+        ID3D12CommandAllocator* GetCommandAllocator(ECommandContextType contextType) { return m_commandAllocators[contextType].Get(); }
+        ID3D12Fence* GetFence(ECommandContextType contextType) { return m_fences[contextType].Get(); }
+        UINT64& GetFenceValue(ECommandContextType contextType) { return m_fenceValues[contextType]; }
+        const UINT64& GetFenceValue(ECommandContextType contextType) const { return m_fenceValues[contextType]; }
 
         DescriptorHeap& GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE type) { return m_descriptorHeaps[type]; }
         const DescriptorHeap& GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE type) const { return m_descriptorHeaps[type]; }
@@ -54,15 +61,13 @@ namespace Neb::nri
         BOOL IsDxgiAdapterSuitable(IDXGIAdapter3* dxgiAdapter, const DXGI_ADAPTER_DESC1& desc) const;
         BOOL QueryMostSuitableDeviceAdapter();
         D3D12Rc<IDXGIAdapter3> m_dxgiAdapter;
-        D3D12Rc<ID3D12Device>  m_device;
+        D3D12Rc<ID3D12Device4> m_device;
 
-        void InitCommandQueuesAndAllocators();
-        D3D12Rc<ID3D12CommandQueue> m_graphicsQueue;
-        D3D12Rc<ID3D12CommandQueue> m_copyQueue;
-        D3D12Rc<ID3D12CommandQueue> m_computeQueue;
-        D3D12Rc<ID3D12CommandAllocator> m_graphicsCommandAllocator;
-        D3D12Rc<ID3D12CommandAllocator> m_copyCommandAllocator;
-        D3D12Rc<ID3D12CommandAllocator> m_computeCommandAllocator;
+        void InitCommandContexts();
+        D3D12Rc<ID3D12CommandQueue> m_commandQueues[eCommandContextType_NumTypes];
+        D3D12Rc<ID3D12CommandAllocator> m_commandAllocators[eCommandContextType_NumTypes];
+        D3D12Rc<ID3D12Fence> m_fences[eCommandContextType_NumTypes];
+        UINT64 m_fenceValues[eCommandContextType_NumTypes];
 
         void InitDescriptorHeaps();
         DescriptorHeap m_descriptorHeaps[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES];

@@ -22,7 +22,7 @@ namespace Neb::nri
         swapchainDesc.Flags = 0 /*DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING*/;
 
         ThrowIfFailed(m_nriManager->GetDxgiFactory()->CreateSwapChainForHwnd(
-            m_nriManager->GetGraphicsQueue(),
+            m_nriManager->GetCommandQueue(eCommandContextType_Graphics),
             hwnd,
             &swapchainDesc,
             NULL,   // Set it to NULL to create a windowed swap chain.

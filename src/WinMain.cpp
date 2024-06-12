@@ -99,17 +99,16 @@ INT WINAPI WinMain(
     // This code will be moved to Nebulae soon
     static const std::filesystem::path AssetsDir = GetModuleDirectory().parent_path().parent_path().parent_path() / "assets";
 
-    Neb::GLTFSceneImporter importer;
-    if (!importer.ImportScenesFromFile(AssetsDir / "DamagedHelmet" / "DamagedHelmet.gltf"))
-    {
-        NEB_LOG_WARN("Failed to import the scene!\n");
-    }
-
     Neb::Nebulae nebulae;
     if (!nebulae.Init(hwnd))
     {
         NEB_LOG_ERROR("Failed to initialize nebulae\n");
         return -1;
+    }
+
+    if (!nebulae.GetSceneImporter().ImportScenesFromFile(AssetsDir / "DamagedHelmet" / "DamagedHelmet.gltf"))
+    {
+        NEB_LOG_WARN("Failed to load scenes\n");
     }
 
     MSG msg = {};

@@ -3,6 +3,7 @@
 #include <fstream>
 #include <filesystem>
 #include <array>
+#include "../common/Log.h"
 
 namespace Neb::nri
 {
@@ -69,11 +70,14 @@ namespace Neb::nri
                 L"-WX", // treat warnings as errors
                 L"-Zpr", // enforce row-major ordering
 
-                // Use the /all_resources_bound / D3DCOMPILE_ALL_RESOURCES_BOUND compile flag if possible
-                // This allows for the compiler to do a better job at optimizing texture accesses.We have seen frame rate improvements of > 1 % when toggling this flag on.
+                // Use the /all_resources_bound compile flag if possible
+                // This allows for the compiler to do a better job at optimizing texture accesses. 
+                // We have seen frame rate improvements of > 1% when toggling this flag on.
                 L"-all_resources_bound", // Enables agressive flattening
         };
 
+        // Such a cool wstr -> str convertion hack lol
+        std::string lpcstrPath = std::filesystem::path(filepath).string();
         std::wstring wPdbPath = std::filesystem::path(filepath)
             .replace_extension("pdb")
             .wstring();
@@ -109,7 +113,7 @@ namespace Neb::nri
         HRESULT hr = m_dxcUtils->LoadFile(filepath.data(), 0, srcBlobEncoding.GetAddressOf());
         if (FAILED(hr))
         {
-            //WARP_LOG_ERROR("[CShaderCompiler] Failed to load a shader at location {}. Compilation process will be aborted...", strFilepath);
+            NEB_LOG_ERROR("ShaderCompiler::CompileInternal -> Failed to load a shader at location {}. Compilation process will be aborted...", lpcstrPath);
             return result;
         }
 
@@ -127,8 +131,8 @@ namespace Neb::nri
             IID_PPV_ARGS(compilationResult.GetAddressOf()));
         if (FAILED(hr))
         {
-            //WARP_LOG_ERROR("[CShaderCompiler] Internal compilation error of a shader at location {}. Aborting...", strFilepath);
-            //WARP_LOG_ERROR("[CShaderCompiler] This might be related with E_INVALID_ARGS error");
+            NEB_LOG_ERROR("ShaderCompiler::CompileInternal -> Internal compilation error of a shader at location {}. Aborting...", lpcstrPath);
+            NEB_LOG_ERROR("ShaderCompiler::CompileInternal -> This might be related with E_INVALID_ARGS error");
             return result;
         }
 
@@ -138,7 +142,7 @@ namespace Neb::nri
         {
             D3D12Rc<IDxcBlobUtf8> errorBlob;
             ThrowIfFailed(compilationResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(errorBlob.GetAddressOf()), nullptr));
-            //WARP_LOG_ERROR("[CShaderCompiler] Failed to compile a shader: {}", (char*)errorBlob->GetStringPointer());
+            NEB_LOG_ERROR("ShaderCompiler::CompileInternal -> Failed to compile a shader: {}", (char*)errorBlob->GetStringPointer());
             return result; // return empty result;
         }
 
