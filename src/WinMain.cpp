@@ -106,10 +106,15 @@ INT WINAPI WinMain(
         return -1;
     }
 
-    if (!nebulae.GetSceneImporter().ImportScenesFromFile(AssetsDir / "DamagedHelmet" / "DamagedHelmet.gltf"))
+    /*Neb::GLTFSceneImporter& importer = nebulae.GetSceneImporter();
+    if (!importer.ImportScenesFromFile(AssetsDir / "DamagedHelmet" / "DamagedHelmet.gltf"))
     {
         NEB_LOG_WARN("Failed to load scenes\n");
-    }
+        return -1;
+    }*/
+    
+    // we only render first scene currently, dont care about other scenes
+    // Neb::GLTFScene* scene = importer.ImportedScenes.front().get();
 
     MSG msg = {};
     while (msg.message != WM_QUIT)
@@ -121,6 +126,7 @@ INT WINAPI WinMain(
         }
 
         // Tick application here
+        nebulae.Render(nullptr);
     }
 
     UnregisterClass(lpClassName, hInstance);

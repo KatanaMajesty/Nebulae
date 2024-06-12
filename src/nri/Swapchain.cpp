@@ -21,14 +21,17 @@ namespace Neb::nri
         swapchainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         swapchainDesc.Flags = 0 /*DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING*/;
 
+        D3D12Rc<IDXGISwapChain1> swapchain;
         ThrowIfFailed(m_nriManager->GetDxgiFactory()->CreateSwapChainForHwnd(
             m_nriManager->GetCommandQueue(eCommandContextType_Graphics),
             hwnd,
             &swapchainDesc,
             NULL,   // Set it to NULL to create a windowed swap chain.
             NULL,   // Set this parameter to NULL if you don't want to restrict content to an output target.
-            m_dxgiSwapchain.ReleaseAndGetAddressOf()
+            swapchain.GetAddressOf()
         ));
+        m_dxgiSwapchain.Reset();
+        ThrowIfFailed(swapchain.As(&m_dxgiSwapchain));
 
         // Create the render target view
         for (UINT i = 0; i < NumBackbuffers; ++i)
@@ -38,6 +41,8 @@ namespace Neb::nri
             m_nriManager->GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
         }
 
+        // Get description of swapchain to easily obtain dimensions
+        ThrowIfFailed(m_dxgiSwapchain->GetDesc(&m_swapchainDesc));
         return TRUE;
     }
 
@@ -63,6 +68,9 @@ namespace Neb::nri
             ThrowIfFailed( m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].GetAddressOf())) );
             m_nriManager->GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
         }
+
+        // Get description of swapchain to easily obtain dimensions
+        ThrowIfFailed(m_dxgiSwapchain->GetDesc(&m_swapchainDesc));
         return TRUE;
     }
 

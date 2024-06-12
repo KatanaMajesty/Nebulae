@@ -40,6 +40,7 @@ namespace Neb
 
         GLTFSceneImporter m_sceneImporter;
 
+        HANDLE m_fenceEvent = NULL;
         nri::D3D12Rc<ID3D12GraphicsCommandList> m_commandList;
         nri::D3D12Rc<ID3D12RootSignature> m_rootSignature;
         nri::D3D12Rc<ID3D12PipelineState> m_pipelineState;
