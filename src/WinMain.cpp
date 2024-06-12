@@ -100,7 +100,7 @@ INT WINAPI WinMain(
     static const std::filesystem::path AssetsDir = GetModuleDirectory().parent_path().parent_path().parent_path() / "assets";
 
     Neb::Nebulae nebulae;
-    if (!nebulae.Init(hwnd))
+    if (!nebulae.Init(Neb::AppSpec{ .Handle = hwnd, .AssetsDirectory = AssetsDir }))
     {
         NEB_LOG_ERROR("Failed to initialize nebulae\n");
         return -1;

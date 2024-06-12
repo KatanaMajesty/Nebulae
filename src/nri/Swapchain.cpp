@@ -66,6 +66,12 @@ namespace Neb::nri
         return TRUE;
     }
 
+    void Swapchain::Present(BOOL vsync)
+    {
+        UINT syncInterval = vsync ? 1 : 0;
+        nri::ThrowIfFailed(m_dxgiSwapchain->Present(syncInterval, 0));
+    }
+
     BOOL Swapchain::ReleaseDxgiReferences()
     {
         // We only release rt buffers, no need to release rtvs, as they do not affect resizing

@@ -52,3 +52,10 @@ target_link_libraries(DXRNebulae
     "dxgi.lib"
     "dxcompiler.lib"
 )
+
+# Copy DLLs to the out path
+# We need dxil.dll here to sign shaders compiled by DXC. Without signing them D3D12 runtime would fail
+add_custom_command(TARGET DXRNebulae POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/vendor/dxcompiler.dll ${CMAKE_CURRENT_SOURCE_DIR}/vendor/dxil.dll $<TARGET_FILE_DIR:DXRNebulae>
+  COMMAND_EXPAND_LISTS
+)

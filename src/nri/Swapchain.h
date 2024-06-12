@@ -24,6 +24,8 @@ namespace Neb::nri
         // use the dimentions of window's client area 
         BOOL Resize(UINT width = 0, UINT height = 0);
 
+        void Present(BOOL vsync);
+
         IDXGISwapChain1* GetDxgiSwapchain() { return m_dxgiSwapchain.Get(); }
         DescriptorAllocation GetSwapchainRtv(UINT backbufferIndex) const { return m_renderTargetViews[backbufferIndex]; }
 

@@ -11,10 +11,10 @@
 namespace Neb
 {
 
-    struct HelloTriangle
+    struct AppSpec
     {
-        CD3DX12_VIEWPORT m_viewport;
-        CD3DX12_RECT m_scissorRect;
+        HWND Handle = NULL;
+        std::filesystem::path AssetsDirectory;
     };
 
     class Nebulae
@@ -25,9 +25,9 @@ namespace Neb
         Nebulae(const Nebulae&) = delete;
         Nebulae& operator=(const Nebulae&) = delete;
 
-        BOOL Init(HWND hwnd);
+        BOOL Init(const AppSpec& appSpec);
         void Resize(UINT width, UINT height);
-        void Render();
+        void Render(GLTFScene* scene);
 
         // TODO: Temporarily here, will be removed asap
         GLTFSceneImporter& GetSceneImporter() { return m_sceneImporter; }
@@ -39,6 +39,10 @@ namespace Neb
         nri::Swapchain m_swapchain;
 
         GLTFSceneImporter m_sceneImporter;
+
+        nri::D3D12Rc<ID3D12GraphicsCommandList> m_commandList;
+        nri::D3D12Rc<ID3D12RootSignature> m_rootSignature;
+        nri::D3D12Rc<ID3D12PipelineState> m_pipelineState;
     };
 
 }

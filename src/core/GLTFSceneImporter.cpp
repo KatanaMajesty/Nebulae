@@ -219,7 +219,7 @@ namespace Neb
                 nri::ThrowIfFailed(allocator->CreateResource(
                     &allocDesc,
                     &resourceDesc,
-                    D3D12_RESOURCE_STATE_COPY_DEST,
+                    D3D12_RESOURCE_STATE_COMMON, // No need to use copy dest state. Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
                     nullptr, allocation.GetAddressOf(),
                     IID_PPV_ARGS(m_GLTFBuffers[i].GetAddressOf()))
                 );
