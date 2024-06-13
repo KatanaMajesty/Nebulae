@@ -114,6 +114,8 @@ namespace Neb
         {
             NEB_ASSERT(m_GLTFTextures[i] == nullptr); // they cannot be valid here
             tinygltf::Image& src = m_GLTFModel.images[i];
+            if (src.image.empty())
+                continue;
 
             // Information for upload resource
             D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
@@ -170,7 +172,7 @@ namespace Neb
 
                 // Now we want to map staging buffer and copy data into it
                 void* mapping = nullptr;
-                nri::ThrowIfFailed(m_stagingBuffers[i]->Map(0, nullptr, &mapping));
+                nri::ThrowIfFailed(uploadBuffer->Map(0, nullptr, &mapping));
 
                 // Copy each row into mapping
                 uint8_t* data = reinterpret_cast<uint8_t*>(mapping);
@@ -185,7 +187,7 @@ namespace Neb
 
             // Finally, submit copy work from upload buffer to destination texture
             D3D12_TEXTURE_COPY_LOCATION dstLocation = CD3DX12_TEXTURE_COPY_LOCATION(m_GLTFTextures[i].Get(), 0);
-            D3D12_TEXTURE_COPY_LOCATION srcLocation = CD3DX12_TEXTURE_COPY_LOCATION(m_stagingBuffers[i].Get(), footprint);
+            D3D12_TEXTURE_COPY_LOCATION srcLocation = CD3DX12_TEXTURE_COPY_LOCATION(uploadBuffer.Get(), footprint);
             m_stagingCommandList->CopyTextureRegion(&dstLocation, 0, 0, 0, &srcLocation, nullptr);
         }
 
@@ -481,14 +483,8 @@ namespace Neb
         static constexpr D3D12_SHADER_RESOURCE_VIEW_DESC NullDescriptorSrvDesc = D3D12_SHADER_RESOURCE_VIEW_DESC{
             .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
             .ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
-            .Shader4ComponentMapping = D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1, // We just want white
-            .Texture2D = D3D12_TEX2D_SRV{
-                .MostDetailedMip = 0,
-                .MipLevels = 1,
-                .PlaneSlice = 0,
-                // Recommended that you don't set MostDetailedMip and ResourceMinLODClamp at the same time. 
-                // Instead, set one of those two members to 0 (to get default behavior)
-            },
+            .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+            .Texture2D = D3D12_TEX2D_SRV{ .MipLevels = 1 }
         };
 
         D3D12_CPU_DESCRIPTOR_HANDLE handle = range.GetCPUHandle(type);
