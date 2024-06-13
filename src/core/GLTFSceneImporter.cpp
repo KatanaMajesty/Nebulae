@@ -133,7 +133,7 @@ namespace Neb
                 nri::ThrowIfFailed(allocator->CreateResource(
                     &allocDesc,
                     &resourceDesc,
-                    D3D12_RESOURCE_STATE_COPY_DEST,
+                    D3D12_RESOURCE_STATE_COMMON,
                     nullptr, allocation.GetAddressOf(),
                     IID_PPV_ARGS(m_GLTFTextures[i].ReleaseAndGetAddressOf())) // Release just in case despite we assume it is null
                 );
@@ -431,8 +431,8 @@ namespace Neb
                 tinygltf::PbrMetallicRoughness& pbrMaterial = srcMaterial.pbrMetallicRoughness;
                 
                 // check if has albedo map
-                material.AlbedoMap = GetTextureFromGLTFScene(pbrMaterial.baseColorTexture.index);
-                if (!material.AlbedoMap)
+                material.Textures[nri::eMaterialTextureType_Albedo] = GetTextureFromGLTFScene(pbrMaterial.baseColorTexture.index);
+                if (!material.Textures[nri::eMaterialTextureType_Albedo])
                 {
                     // Use factor
                     material.AlbedoFactor.x = pbrMaterial.baseColorFactor[0];
@@ -441,13 +441,19 @@ namespace Neb
                     material.AlbedoFactor.w = pbrMaterial.baseColorFactor[3];
                 }
 
-                material.NormalMap = GetTextureFromGLTFScene(srcMaterial.normalTexture.index);
-                NEB_ASSERT(material.NormalMap); // Always require normal map
+                material.Textures[nri::eMaterialTextureType_Normal] = GetTextureFromGLTFScene(srcMaterial.normalTexture.index);
+                NEB_ASSERT(material.Textures[nri::eMaterialTextureType_Normal]); // Always require normal map
 
-                material.RoughnessMetalnessMap = GetTextureFromGLTFScene(pbrMaterial.metallicRoughnessTexture.index);
-                if (!material.RoughnessMetalnessMap)
+                material.Textures[nri::eMaterialTextureType_RoughnessMetalness] = GetTextureFromGLTFScene(pbrMaterial.metallicRoughnessTexture.index);
+                if (!material.Textures[nri::eMaterialTextureType_RoughnessMetalness])
                     material.RoughnessMetalnessFactor = Neb::Vec2(pbrMaterial.roughnessFactor, pbrMaterial.metallicFactor);
 
+                nri::Manager& nriManager = nri::Manager::Get();
+                nri::DescriptorHeap& descriptorHeap = nriManager.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+                material.SrvRange = descriptorHeap.AllocateDescriptorRange(nri::eMaterialTextureType_NumTypes);
+                for (UINT i = 0; i < nri::eMaterialTextureType_NumTypes; ++i)
+                    InitMaterialTextureDescriptor(material.Textures[i].Get(), (nri::EMaterialTextureType)i, material.SrvRange);
             }
             else
             {
@@ -468,6 +474,28 @@ namespace Neb
         NEB_ASSERT(location.source >= 0); // Not required (???)... I am worried :(
         nri::D3D12Rc<ID3D12Resource> srcTexture = m_GLTFTextures[location.source];
         return srcTexture;
+    }
+
+    void GLTFSceneImporter::InitMaterialTextureDescriptor(ID3D12Resource* resource, nri::EMaterialTextureType type, const nri::DescriptorRange& range)
+    {
+        static constexpr D3D12_SHADER_RESOURCE_VIEW_DESC NullDescriptorSrvDesc = D3D12_SHADER_RESOURCE_VIEW_DESC{
+            .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+            .ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+            .Shader4ComponentMapping = D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1, // We just want white
+            .Texture2D = D3D12_TEX2D_SRV{
+                .MostDetailedMip = 0,
+                .MipLevels = 1,
+                .PlaneSlice = 0,
+                // Recommended that you don't set MostDetailedMip and ResourceMinLODClamp at the same time. 
+                // Instead, set one of those two members to 0 (to get default behavior)
+            },
+        };
+
+        D3D12_CPU_DESCRIPTOR_HANDLE handle = range.GetCPUHandle(type);
+        // https://microsoft.github.io/DirectX-Specs/d3d/ResourceBinding.html#null-descriptors
+        // passing NULL for the resource pointer in the descriptor definition achieves the effect of an “unbound” resource.
+        nri::Manager& nriManager = nri::Manager::Get();
+        nriManager.GetDevice()->CreateShaderResourceView(resource, (resource) ? nullptr : &NullDescriptorSrvDesc, handle);
     }
 
 } // Neb namespace

@@ -45,16 +45,24 @@ namespace Neb
             nri::eShaderCompilationFlag_None
         );
 
-        CD3DX12_ROOT_PARAMETER1 cbInstanceInfoRootParam;
+        std::vector<CD3DX12_ROOT_PARAMETER1> rootParams;
+        CD3DX12_ROOT_PARAMETER1& cbInstanceInfoRootParam = rootParams.emplace_back();
         cbInstanceInfoRootParam.InitAsConstantBufferView(0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_VERTEX);
+
+        CD3DX12_ROOT_PARAMETER1& materialTexturesRootParam = rootParams.emplace_back();
+        D3D12_DESCRIPTOR_RANGE1 materialTexturesRange 
+            = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, nri::eMaterialTextureType_NumTypes, 0, 0);
+        materialTexturesRootParam.InitAsDescriptorTable(1, &materialTexturesRange, D3D12_SHADER_VISIBILITY_PIXEL);
+
+        D3D12_STATIC_SAMPLER_DESC staticSampler = CD3DX12_STATIC_SAMPLER_DESC(0);
 
         D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
         rootSignatureDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
         rootSignatureDesc.Desc_1_1 = D3D12_ROOT_SIGNATURE_DESC1{
-            .NumParameters = 1,
-            .pParameters = &cbInstanceInfoRootParam,
-            .NumStaticSamplers = 0,
-            .pStaticSamplers = nullptr,
+            .NumParameters = static_cast<UINT>(rootParams.size()),
+            .pParameters = rootParams.data(),
+            .NumStaticSamplers = 1,
+            .pStaticSamplers = &staticSampler,
             .Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
         };
 
@@ -116,6 +124,12 @@ namespace Neb
         // Reset with nullptr as initial state, not to be bothered
         nri::ThrowIfFailed(m_commandList->Reset(commandAllocator, nullptr));
         {
+            std::array shaderVisibleHeaps = {
+                nriManager.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).GetHeap(),
+                nriManager.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER).GetHeap(),
+            };
+            m_commandList->SetDescriptorHeaps(static_cast<UINT>(shaderVisibleHeaps.size()), shaderVisibleHeaps.data());
+    
             // No need to sync backbuffers yet
             // TODO: Revisit this and make it inflight
 
@@ -149,7 +163,7 @@ namespace Neb
             m_commandList->SetPipelineState(m_pipelineState.Get());
 
             Mat4 translation = Mat4::CreateTranslation(Vec3(0.0f, 0.0f, -2.0f));
-            Mat4 rotation = Mat4::CreateFromYawPitchRoll(Vec3(0.0f));
+            Mat4 rotation = Mat4::CreateFromYawPitchRoll(Vec3(90.0f, 0.0f, 0.0f));
             Mat4 scale = Mat4::CreateScale(Vec3(1.0f));
 
             const float aspectRatio = m_swapchain.GetWidth() / static_cast<float>(m_swapchain.GetHeight());
@@ -171,10 +185,32 @@ namespace Neb
                     nri::StaticSubmesh& submesh = staticMesh.Submeshes[i];
                     nri::Material& material = staticMesh.SubmeshMaterials[i];
 
+                    /*std::array<D3D12_RESOURCE_BARRIER, nri::eMaterialTextureType_NumTypes> materialTextureBarriers;
+                    for (UINT textureType = 0; textureType < nri::eMaterialTextureType_NumTypes; ++textureType)
+                    {
+                        materialTextureBarriers[textureType] = CD3DX12_RESOURCE_BARRIER::Transition(
+                            material.Textures[textureType].Get(), 
+                            D3D12_RESOURCE_STATE_COMMON, 
+                            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                    }
+                    m_commandList->ResourceBarrier(static_cast<UINT>(materialTextureBarriers.size()), materialTextureBarriers.data());*/
+
+                    m_commandList->SetGraphicsRootDescriptorTable(1, material.SrvRange.GPUBeginHandle);
+
                     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                     m_commandList->IASetVertexBuffers(0, nri::eAttributeType_NumTypes, submesh.AttributeViews.data());
                     m_commandList->IASetIndexBuffer(&submesh.IBView);
                     m_commandList->DrawIndexedInstanced(submesh.NumIndices, 1, 0, 0, 0);
+
+                    // we dont need transition barriers because we specified in root signature that resources are pixel-only
+                    /*for (UINT textureType = 0; textureType < nri::eMaterialTextureType_NumTypes; ++textureType)
+                    {
+                        materialTextureBarriers[textureType] = CD3DX12_RESOURCE_BARRIER::Transition(
+                            material.Textures[textureType].Get(),
+                            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                            D3D12_RESOURCE_STATE_COMMON);
+                    }
+                    m_commandList->ResourceBarrier(static_cast<UINT>(materialTextureBarriers.size()), materialTextureBarriers.data());*/
                 }
             }
 

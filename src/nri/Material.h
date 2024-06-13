@@ -7,16 +7,22 @@
 namespace Neb::nri
 {
 
+    enum EMaterialTextureType
+    {
+        eMaterialTextureType_Albedo,
+        eMaterialTextureType_Normal,
+        eMaterialTextureType_RoughnessMetalness,
+        eMaterialTextureType_NumTypes,
+    };
+
     // Defines the entire material itself. Material definition based upon glTF 2.0 spec
     // For more info: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#reference-material-pbrmetallicroughness
     // 
     // We only support metallic-roughness PBR materials
     struct Material
     {
-        D3D12Rc<ID3D12Resource> AlbedoMap;
-        D3D12Rc<ID3D12Resource> NormalMap;
-        // RGBA texture, B for metalness, G for roughness (R, A channels ignored)
-        D3D12Rc<ID3D12Resource> RoughnessMetalnessMap;
+        // in RGBA roughness-metalness texture, B for metalness, G for roughness (R, A channels ignored)
+        D3D12Rc<ID3D12Resource> Textures[eMaterialTextureType_NumTypes];
 
         // Material factors, act as texture replacements. 
         // If D3D12Rc of a respective texture is null - use them
@@ -28,7 +34,7 @@ namespace Neb::nri
         //
         // The idea is to store descriptors for each material texture in one descriptor range
         // If material dont have a specific texture then null descriptor will be in place, thats it
-        
+        DescriptorRange SrvRange; // Albedo, Normal, RoughnessMetalness
     };
 
 }

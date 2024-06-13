@@ -9,6 +9,7 @@ struct VSInput
 struct VSOutput
 {
     float4 Pos : SV_Position;
+    float2 TexUv : TEXCOORD;
 };
 
 struct InstanceInfo
@@ -26,6 +27,7 @@ VSOutput VSMain(VSInput input)
 
     VSOutput output;
     output.Pos = mul(worldPos, cbInstanceInfo.Projection);
+    output.TexUv = input.TexCoords;
 
     return output;
 }
@@ -35,10 +37,11 @@ VSOutput VSMain(VSInput input)
 #define kMaterialTextures_RoughnessMetalnessMapIndex 2
 #define kMaterialTextures_NumTextureTypes 3
 
-// Texture2D MaterialTextures[kMaterialTextures_NumTextureTypes] : register(t0, space0);
+Texture2D MaterialTextures[kMaterialTextures_NumTextureTypes] : register(t0, space0);
+SamplerState StaticSampler : register(s0);
 
 float4 PSMain(VSOutput input) : SV_Target0
 {
-    float normDepth = input.Pos.z / input.Pos.w;
-    return float4(normDepth, 0.0, 0.0, 1.0);
+    float3 albedo = MaterialTextures[kMaterialTextures_AlbedoMapIndex].Sample(StaticSampler, input.TexUv).rgb;
+    return float4(albedo, 1.0);
 }

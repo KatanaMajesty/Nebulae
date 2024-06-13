@@ -8,6 +8,7 @@
 #include "GLTFScene.h"
 #include "../nri/stdafx.h"
 #include "../nri/Manager.h"
+#include "../nri/DescriptorAllocation.h"
 
 namespace Neb
 {
@@ -41,7 +42,9 @@ namespace Neb
         // Node processing
         bool ImportGLTFNode(GLTFScene* scene, tinygltf::Scene& src, int32_t nodeID);
         bool ImportStaticMesh(nri::StaticMesh& mesh, tinygltf::Mesh& src);
+        
         nri::D3D12Rc<ID3D12Resource> GetTextureFromGLTFScene(int32_t index);
+        void InitMaterialTextureDescriptor(ID3D12Resource* resource, nri::EMaterialTextureType type, const nri::DescriptorRange& range);
 
         tinygltf::TinyGLTF m_GLTFLoader;
         tinygltf::Model m_GLTFModel;

@@ -15,6 +15,8 @@ target_sources(DXRNebulae PRIVATE
     "src/core/Math.h"
     "src/nri/DepthStencilBuffer.cpp"
     "src/nri/DepthStencilBuffer.h"
+    "src/nri/DescriptorAllocation.cpp"
+    "src/nri/DescriptorAllocation.h"
     "src/nri/DescriptorHeap.cpp"
     "src/nri/DescriptorHeap.h"
     "src/nri/Manager.cpp"
