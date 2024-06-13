@@ -18,7 +18,7 @@ namespace Neb::nri
         Swapchain() = default;
 
         // Initializes the swapchain, returns true if initialized successfully
-        BOOL Init(HWND hwnd, Neb::nri::Manager* nriManager);
+        BOOL Init(HWND hwnd);
 
         // Resizes all the backbuffers of the swapchain. If width == 0 && height == 0 the swapchain will
         // use the dimentions of window's client area 
@@ -33,15 +33,13 @@ namespace Neb::nri
 
         ID3D12Resource* GetBackbuffer(UINT index) { return m_renderTargets[index].Get(); }
         ID3D12Resource* GetCurrentBackbuffer() { return GetBackbuffer(GetCurrentBackbufferIndex()); }
-        DescriptorAllocation GetBackbufferRtv(UINT index) const { return m_renderTargetViews[index]; }
-        DescriptorAllocation GetCurrentBackbufferRtv() const { return GetBackbufferRtv(GetCurrentBackbufferIndex()); }
+        const DescriptorAllocation& GetBackbufferRtv(UINT index) const { return m_renderTargetViews[index]; }
+        const DescriptorAllocation& GetCurrentBackbufferRtv() const { return GetBackbufferRtv(GetCurrentBackbufferIndex()); }
 
     private:
         BOOL ReleaseDxgiReferences();
 
-        Neb::nri::Manager* m_nriManager;
-
-        DXGI_SWAP_CHAIN_DESC m_swapchainDesc;
+        DXGI_SWAP_CHAIN_DESC m_swapchainDesc = {};
         D3D12Rc<IDXGISwapChain4> m_dxgiSwapchain;
         D3D12Rc<ID3D12Resource> m_renderTargets[NumBackbuffers];
         DescriptorAllocation m_renderTargetViews[NumBackbuffers];

@@ -61,7 +61,7 @@ namespace Neb::nri
         // https://strontic.github.io/xcyclopedia/library/dxc.exe-0C1709D4E1787E3EB3E6A35C85714824.html
         static constexpr std::array dxcDefault =
         {
-    #ifdef WARP_DEBUG
+    #ifdef NEB_DEBUG
                 L"-Od", // no optimization
     #else
                 L"-O3", // max optimization

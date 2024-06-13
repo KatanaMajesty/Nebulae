@@ -4,6 +4,11 @@
 
 namespace Neb::nri
 {
+    Manager& Manager::Get()
+    {
+        static Manager instance;
+        return instance;
+    }
 
     void Manager::Init()
     {

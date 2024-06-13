@@ -1,5 +1,6 @@
 #pragma once
 
+#include <numbers>
 #include <d3d12.h> // Include before SimpleMath to have interop between D3D12 and the library
 #include "DirectXTK12/Include/SimpleMath.h"
 
@@ -38,5 +39,11 @@ namespace Neb
     using BoundingBox = DirectX::BoundingBox;
     using BoundingOrientedBox = DirectX::BoundingOrientedBox;
     using BoundingFrustum = DirectX::BoundingFrustum;
+
+    template<typename T>
+    inline T ToRadians(T t) {
+        static constexpr float Mul = std::numbers::pi_v<float> / 180.0f;
+        return t * Mul;
+    }
 
 } // Neb namespace

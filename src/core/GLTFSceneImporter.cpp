@@ -9,9 +9,6 @@ namespace Neb
 
     bool GLTFSceneImporter::ImportScenesFromFile(const std::filesystem::path& filepath)
     {
-        if (!m_nriManager)
-            return false;
-
         Clear(); // cleanup before work
         std::string err, warn;
 
@@ -74,12 +71,12 @@ namespace Neb
 
     bool GLTFSceneImporter::SubmitD3D12Resources()
     {
-        NEB_ASSERT(m_nriManager);
-        
+        nri::Manager& nriManager = nri::Manager::Get();
+
         // Check if staging command list is created. If not - lazy initialize it
         if (!m_stagingCommandList)
         {
-            nri::ThrowIfFailed(m_nriManager->GetDevice()->CreateCommandList1(0, 
+            nri::ThrowIfFailed(nriManager.GetDevice()->CreateCommandList1(0,
                 D3D12_COMMAND_LIST_TYPE_COPY, 
                 D3D12_COMMAND_LIST_FLAG_NONE, 
                 IID_PPV_ARGS(m_stagingCommandList.GetAddressOf())
@@ -87,7 +84,7 @@ namespace Neb
         }
         
         NEB_ASSERT(m_stagingCommandList);
-        nri::ThrowIfFailed(m_stagingCommandList->Reset(m_nriManager->GetCommandAllocator(nri::eCommandContextType_Copy), nullptr));
+        nri::ThrowIfFailed(m_stagingCommandList->Reset(nriManager.GetCommandAllocator(nri::eCommandContextType_Copy), nullptr));
         {
             nri::ThrowIfFalse(SubmitD3D12Images());
             nri::ThrowIfFalse(SubmitD3D12Buffers());
@@ -95,17 +92,19 @@ namespace Neb
         nri::ThrowIfFailed(m_stagingCommandList->Close());
 
         ID3D12CommandList* pCommandLists[] = { m_stagingCommandList.Get() };
-        ID3D12CommandQueue* copyQueue = m_nriManager->GetCommandQueue(nri::eCommandContextType_Copy);
+        ID3D12CommandQueue* copyQueue = nriManager.GetCommandQueue(nri::eCommandContextType_Copy);
         copyQueue->ExecuteCommandLists(_countof(pCommandLists), pCommandLists);
 
-        ID3D12Fence* copyFence = m_nriManager->GetFence(nri::eCommandContextType_Copy);
-        UINT64& copyFenceValue = m_nriManager->GetFenceValue(nri::eCommandContextType_Copy);
+        ID3D12Fence* copyFence = nriManager.GetFence(nri::eCommandContextType_Copy);
+        UINT64& copyFenceValue = nriManager.GetFenceValue(nri::eCommandContextType_Copy);
         nri::ThrowIfFailed(copyQueue->Signal(copyFence, ++copyFenceValue));
         return true;
     }
 
     bool GLTFSceneImporter::SubmitD3D12Images()
     {
+        nri::Manager& nriManager = nri::Manager::Get();
+
         const size_t numImages = m_GLTFModel.images.size();
         m_GLTFTextures.clear();
         m_GLTFTextures.resize(numImages);
@@ -124,7 +123,7 @@ namespace Neb
             // Destination resource
             {
                 D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, src.width, src.height, 1, 1);
-                D3D12MA::Allocator* allocator = m_nriManager->GetResourceAllocator();
+                D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
                 D3D12MA::ALLOCATION_DESC allocDesc = {
                     .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
                     .HeapType = D3D12_HEAP_TYPE_DEFAULT,
@@ -140,7 +139,7 @@ namespace Neb
                 );
 
                 UINT numSubresources = resourceDesc.MipLevels * resourceDesc.DepthOrArraySize;
-                m_nriManager->GetDevice()->GetCopyableFootprints(
+                nriManager.GetDevice()->GetCopyableFootprints(
                     &resourceDesc,
                     0, numSubresources,
                     0,
@@ -153,7 +152,7 @@ namespace Neb
             nri::D3D12Rc<ID3D12Resource> uploadBuffer;
             {
                 D3D12_RESOURCE_DESC uploadDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{ .SizeInBytes = numTotalBytes, .Alignment = 0 });
-                D3D12MA::Allocator* allocator = m_nriManager->GetResourceAllocator();
+                D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
                 D3D12MA::ALLOCATION_DESC allocDesc = {
                     .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
                     .HeapType = D3D12_HEAP_TYPE_UPLOAD,
@@ -195,6 +194,8 @@ namespace Neb
 
     bool GLTFSceneImporter::SubmitD3D12Buffers()
     {
+        nri::Manager& nriManager = nri::Manager::Get();
+     
         const size_t numBuffers = m_GLTFModel.buffers.size();
         m_GLTFBuffers.clear();
         m_GLTFBuffers.resize(numBuffers);
@@ -209,7 +210,7 @@ namespace Neb
             // destination
             {
                 D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{ .SizeInBytes = numBytes, .Alignment = 0 });
-                D3D12MA::Allocator* allocator = m_nriManager->GetResourceAllocator();
+                D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
                 D3D12MA::ALLOCATION_DESC allocDesc = {
                     .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
                     .HeapType = D3D12_HEAP_TYPE_DEFAULT,
@@ -223,12 +224,15 @@ namespace Neb
                     nullptr, allocation.GetAddressOf(),
                     IID_PPV_ARGS(m_GLTFBuffers[i].GetAddressOf()))
                 );
+                
+                // hack to convert from string to wstring using <filesystem>. Not sure if that ok to do
+                m_GLTFBuffers[i]->SetName(std::filesystem::path(src.name).wstring().c_str());
             }
 
             nri::D3D12Rc<ID3D12Resource> uploadBuffer;
             {
                 D3D12_RESOURCE_DESC uploadDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{ .SizeInBytes = numBytes, .Alignment = 0 });
-                D3D12MA::Allocator* allocator = m_nriManager->GetResourceAllocator();
+                D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
                 D3D12MA::ALLOCATION_DESC allocDesc = {
                     .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
                     .HeapType = D3D12_HEAP_TYPE_UPLOAD,
@@ -248,6 +252,8 @@ namespace Neb
                 nri::ThrowIfFailed(uploadBuffer->Map(0, nullptr, &data));
                 std::memcpy(data, src.data.data(), numBytes);
             }
+
+            m_stagingCommandList->CopyBufferRegion(m_GLTFBuffers[i].Get(), 0, uploadBuffer.Get(), 0, numBytes);
         }
 
         return true;
@@ -255,8 +261,10 @@ namespace Neb
 
     void GLTFSceneImporter::WaitD3D12Resources()
     {
-        ID3D12Fence* copyFence = m_nriManager->GetFence(nri::eCommandContextType_Copy);
-        UINT64& copyFenceValue = m_nriManager->GetFenceValue(nri::eCommandContextType_Copy);
+        nri::Manager& nriManager = nri::Manager::Get();
+
+        ID3D12Fence* copyFence = nriManager.GetFence(nri::eCommandContextType_Copy);
+        UINT64& copyFenceValue = nriManager.GetFenceValue(nri::eCommandContextType_Copy);
 
         // At the very end, when we are done - wait asset processing for completion
         if (copyFence->GetCompletedValue() < copyFenceValue)

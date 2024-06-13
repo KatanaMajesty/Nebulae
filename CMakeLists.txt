@@ -13,6 +13,8 @@ target_sources(DXRNebulae PRIVATE
     "src/core/GLTFSceneImporter.cpp"
     "src/core/GLTFSceneImporter.h"
     "src/core/Math.h"
+    "src/nri/DepthStencilBuffer.cpp"
+    "src/nri/DepthStencilBuffer.h"
     "src/nri/DescriptorHeap.cpp"
     "src/nri/DescriptorHeap.h"
     "src/nri/Manager.cpp"

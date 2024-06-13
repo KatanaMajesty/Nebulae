@@ -99,22 +99,14 @@ INT WINAPI WinMain(
     // This code will be moved to Nebulae soon
     static const std::filesystem::path AssetsDir = GetModuleDirectory().parent_path().parent_path().parent_path() / "assets";
 
-    Neb::Nebulae nebulae;
-    if (!nebulae.Init(Neb::AppSpec{ .Handle = hwnd, .AssetsDirectory = AssetsDir }))
-    {
-        NEB_LOG_ERROR("Failed to initialize nebulae\n");
-        return -1;
-    }
+    Neb::nri::Manager& nriManager = Neb::nri::Manager::Get();
+    nriManager.Init();
 
-    /*Neb::GLTFSceneImporter& importer = nebulae.GetSceneImporter();
-    if (!importer.ImportScenesFromFile(AssetsDir / "DamagedHelmet" / "DamagedHelmet.gltf"))
-    {
-        NEB_LOG_WARN("Failed to load scenes\n");
-        return -1;
-    }*/
-    
-    // we only render first scene currently, dont care about other scenes
-    // Neb::GLTFScene* scene = importer.ImportedScenes.front().get();
+    Neb::Nebulae nebulae;
+    Neb::nri::ThrowIfFalse(nebulae.Init(Neb::AppSpec{ .Handle = hwnd, .AssetsDirectory = AssetsDir }));
+
+    Neb::GLTFSceneImporter& importer = nebulae.GetSceneImporter();
+    Neb::nri::ThrowIfFalse(importer.ImportScenesFromFile(AssetsDir / "DamagedHelmet" / "DamagedHelmet.gltf"));
 
     MSG msg = {};
     while (msg.message != WM_QUIT)
@@ -126,7 +118,8 @@ INT WINAPI WinMain(
         }
 
         // Tick application here
-        nebulae.Render(nullptr);
+        Neb::GLTFScene* scene = importer.ImportedScenes.front().get();
+        nebulae.Render(scene);
     }
 
     UnregisterClass(lpClassName, hInstance);

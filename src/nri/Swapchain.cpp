@@ -5,10 +5,9 @@
 namespace Neb::nri
 {
 
-    BOOL Swapchain::Init(HWND hwnd, Neb::nri::Manager* nriManager)
+    BOOL Swapchain::Init(HWND hwnd)
     {
-        ThrowIfFalse(nriManager != nullptr);
-        m_nriManager = nriManager;
+        nri::Manager& nriManager = nri::Manager::Get();
 
         DXGI_SWAP_CHAIN_DESC1 swapchainDesc = {};
         swapchainDesc.Width = 0;
@@ -22,8 +21,8 @@ namespace Neb::nri
         swapchainDesc.Flags = 0 /*DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING*/;
 
         D3D12Rc<IDXGISwapChain1> swapchain;
-        ThrowIfFailed(m_nriManager->GetDxgiFactory()->CreateSwapChainForHwnd(
-            m_nriManager->GetCommandQueue(eCommandContextType_Graphics),
+        ThrowIfFailed(nriManager.GetDxgiFactory()->CreateSwapChainForHwnd(
+            nriManager.GetCommandQueue(eCommandContextType_Graphics),
             hwnd,
             &swapchainDesc,
             NULL,   // Set it to NULL to create a windowed swap chain.
@@ -37,8 +36,8 @@ namespace Neb::nri
         for (UINT i = 0; i < NumBackbuffers; ++i)
         {
             ThrowIfFailed(m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].ReleaseAndGetAddressOf())));
-            m_renderTargetViews[i] = m_nriManager->GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV).AllocateDescriptor();
-            m_nriManager->GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
+            m_renderTargetViews[i] = nriManager.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV).AllocateDescriptor();
+            nriManager.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
         }
 
         // Get description of swapchain to easily obtain dimensions
@@ -62,11 +61,13 @@ namespace Neb::nri
             return FALSE;
         }
 
+        nri::Manager& nriManager = nri::Manager::Get();
+
         // We assume that the client already issued a wait for graphics queue to finish executing all frames
         for (UINT i = 0; i < NumBackbuffers; ++i)
         {
             ThrowIfFailed( m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].GetAddressOf())) );
-            m_nriManager->GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
+            nriManager.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
         }
 
         // Get description of swapchain to easily obtain dimensions

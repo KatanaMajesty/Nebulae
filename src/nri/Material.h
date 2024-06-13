@@ -2,6 +2,7 @@
 
 #include "stdafx.h"
 #include "../core/Math.h"
+#include "DescriptorAllocation.h"
 
 namespace Neb::nri
 {
@@ -21,6 +22,13 @@ namespace Neb::nri
         // If D3D12Rc of a respective texture is null - use them
         Neb::Vec4 AlbedoFactor = Neb::Vec4(0.0f, 0.0f, 0.0f, 1.0f);
         Neb::Vec2 RoughnessMetalnessFactor = Neb::Vec2(1.0f, 0.0f);
+
+        // We utilize null descriptors here
+        // https://microsoft.github.io/DirectX-Specs/d3d/ResourceBinding.html#null-descriptors
+        //
+        // The idea is to store descriptors for each material texture in one descriptor range
+        // If material dont have a specific texture then null descriptor will be in place, thats it
+        
     };
 
 }

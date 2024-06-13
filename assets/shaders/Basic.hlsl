@@ -1,32 +1,44 @@
 
-//struct VSInput
-//{
-//    float3 Position : POSITION;
-//    float3 Normal : NORMAL;
-//    float2 TexCoords : TEX_COORDS;
-//};
+struct VSInput
+{
+    float3 Position : POSITION;
+    float3 Normal : NORMAL;
+    float2 TexCoords : TEX_COORDS;
+};
 
 struct VSOutput
 {
     float4 Pos : SV_Position;
 };
 
-static const float2 Positions[] =
+struct InstanceInfo
 {
-    float2(-0.5, -0.5),
-    float2(0.0, 0.5),
-    float2(0.5, -0.5)
+    // Requires 256 alignment
+    float4x4 InstanceToWorld;
+    float4x4 Projection; // Currently projection is in instance info, just for the time being
 };
 
-VSOutput VSMain(uint vid : SV_VertexID)
+ConstantBuffer<InstanceInfo> cbInstanceInfo : register(b0);
+
+VSOutput VSMain(VSInput input)
 {
+    float4 worldPos = mul(float4(input.Position, 1.0), cbInstanceInfo.InstanceToWorld);
+
     VSOutput output;
-    output.Pos = float4(Positions[vid], 0.0, 1.0);
+    output.Pos = mul(worldPos, cbInstanceInfo.Projection);
 
     return output;
 }
 
+#define kMaterialTextures_AlbedoMapIndex 0
+#define kMaterialTextures_NormalMapIndex 1
+#define kMaterialTextures_RoughnessMetalnessMapIndex 2
+#define kMaterialTextures_NumTextureTypes 3
+
+// Texture2D MaterialTextures[kMaterialTextures_NumTextureTypes] : register(t0, space0);
+
 float4 PSMain(VSOutput input) : SV_Target0
 {
-    return float4(1.0, 0.0, 0.0, 1.0);
+    float normDepth = input.Pos.z / input.Pos.w;
+    return float4(normDepth, 0.0, 0.0, 1.0);
 }

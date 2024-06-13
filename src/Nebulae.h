@@ -4,6 +4,7 @@
 #include "nri/Shader.h"
 #include "nri/ShaderCompiler.h"
 #include "nri/Swapchain.h"
+#include "nri/DepthStencilBuffer.h"
 
 #include "core/GLTFScene.h"
 #include "core/GLTFSceneImporter.h"
@@ -15,6 +16,13 @@ namespace Neb
     {
         HWND Handle = NULL;
         std::filesystem::path AssetsDirectory;
+    };
+
+    // All CBs require 256 alignment
+    struct alignas(256) CbInstanceInfo
+    {
+        Neb::Mat4 InstanceToWorld;
+        Neb::Mat4 Projection;
     };
 
     class Nebulae
@@ -34,9 +42,8 @@ namespace Neb
 
     private:
         nri::ShaderCompiler m_shaderCompiler;
-
-        nri::Manager m_nriManager;
         nri::Swapchain m_swapchain;
+        nri::DepthStencilBuffer m_depthStencilBuffer;
 
         GLTFSceneImporter m_sceneImporter;
 
@@ -44,6 +51,11 @@ namespace Neb
         nri::D3D12Rc<ID3D12GraphicsCommandList> m_commandList;
         nri::D3D12Rc<ID3D12RootSignature> m_rootSignature;
         nri::D3D12Rc<ID3D12PipelineState> m_pipelineState;
+
+        void InitInstanceInfoCb();
+        CbInstanceInfo* m_cbInstanceInfoBufferMapping = nullptr;
+        nri::D3D12Rc<ID3D12Resource> m_cbInstanceInfoBuffer;
+        nri::DescriptorAllocation m_cbInstanceInfoDescriptor;
     };
 
 }

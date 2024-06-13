@@ -19,11 +19,14 @@ namespace Neb::nri
 
     class Manager
     {
-    public:
+    private:
         Manager() = default;
 
+    public:
         Manager(const Manager&) = delete;
         Manager& operator=(const Manager&) = delete;
+
+        static Manager& Get();
     
         // Main member-function. Initializes the entire manager (device)
         void Init();

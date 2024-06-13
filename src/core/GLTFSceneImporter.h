@@ -19,10 +19,6 @@ namespace Neb
     {
     public:
         GLTFSceneImporter() = default;
-        GLTFSceneImporter(nri::Manager* nriManager)
-            : m_nriManager(nriManager)
-        {
-        }
 
         bool ImportScenesFromFile(const std::filesystem::path& filepath);
         void Clear();
@@ -47,7 +43,6 @@ namespace Neb
         bool ImportStaticMesh(nri::StaticMesh& mesh, tinygltf::Mesh& src);
         nri::D3D12Rc<ID3D12Resource> GetTextureFromGLTFScene(int32_t index);
 
-        nri::Manager* m_nriManager = nullptr;
         tinygltf::TinyGLTF m_GLTFLoader;
         tinygltf::Model m_GLTFModel;
 
