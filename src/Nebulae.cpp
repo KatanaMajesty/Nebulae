@@ -1,6 +1,7 @@
 #include "Nebulae.h"
 
 #include "common/Defines.h"
+#include "common/Log.h"
 
 namespace Neb
 {
@@ -79,6 +80,7 @@ namespace Neb
         psoDesc.VS = vsBasic.GetBinaryBytecode();
         psoDesc.PS = psBasic.GetBinaryBytecode();
         psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+        psoDesc.RasterizerState.FrontCounterClockwise = TRUE; // glTF 2.0 spec: the winding order triangle faces is CCW
         psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
         psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT); // Lazy to create depth stencil buffer yet
         //psoDesc.DepthStencilState.DepthEnable = FALSE;
@@ -99,6 +101,9 @@ namespace Neb
         m_sceneImporter.Clear();
 
         InitInstanceInfoCb();
+
+        // At the very end begin the time watch
+        m_timeWatch.Begin();
         return TRUE;
     }
 
@@ -115,6 +120,11 @@ namespace Neb
         {
             return;
         }
+
+        int64_t elapsedSeconds = m_timeWatch.Elapsed();
+        int64_t timestepMillis = elapsedSeconds - m_lastFrameSeconds;
+        m_lastFrameSeconds = elapsedSeconds;
+        const float timestep = timestepMillis * 0.001f;
 
         nri::Manager& nriManager = nri::Manager::Get();
 
@@ -162,8 +172,13 @@ namespace Neb
             m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
             m_commandList->SetPipelineState(m_pipelineState.Get());
 
+            static float rotationAngleY = 0.0f;
+            rotationAngleY += 30.0f * timestep;
+
+            const Vec3 rotationAngles = Vec3(ToRadians(90.0f), ToRadians(rotationAngleY), ToRadians(0.0f));
+
             Mat4 translation = Mat4::CreateTranslation(Vec3(0.0f, 0.0f, -2.0f));
-            Mat4 rotation = Mat4::CreateFromYawPitchRoll(Vec3(90.0f, 0.0f, 0.0f));
+            Mat4 rotation = Mat4::CreateFromYawPitchRoll(rotationAngles);
             Mat4 scale = Mat4::CreateScale(Vec3(1.0f));
 
             const float aspectRatio = m_swapchain.GetWidth() / static_cast<float>(m_swapchain.GetHeight());
@@ -185,32 +200,12 @@ namespace Neb
                     nri::StaticSubmesh& submesh = staticMesh.Submeshes[i];
                     nri::Material& material = staticMesh.SubmeshMaterials[i];
 
-                    /*std::array<D3D12_RESOURCE_BARRIER, nri::eMaterialTextureType_NumTypes> materialTextureBarriers;
-                    for (UINT textureType = 0; textureType < nri::eMaterialTextureType_NumTypes; ++textureType)
-                    {
-                        materialTextureBarriers[textureType] = CD3DX12_RESOURCE_BARRIER::Transition(
-                            material.Textures[textureType].Get(), 
-                            D3D12_RESOURCE_STATE_COMMON, 
-                            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-                    }
-                    m_commandList->ResourceBarrier(static_cast<UINT>(materialTextureBarriers.size()), materialTextureBarriers.data());*/
-
                     m_commandList->SetGraphicsRootDescriptorTable(1, material.SrvRange.GPUBeginHandle);
 
                     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                     m_commandList->IASetVertexBuffers(0, nri::eAttributeType_NumTypes, submesh.AttributeViews.data());
                     m_commandList->IASetIndexBuffer(&submesh.IBView);
                     m_commandList->DrawIndexedInstanced(submesh.NumIndices, 1, 0, 0, 0);
-
-                    // we dont need transition barriers because we specified in root signature that resources are pixel-only
-                    /*for (UINT textureType = 0; textureType < nri::eMaterialTextureType_NumTypes; ++textureType)
-                    {
-                        materialTextureBarriers[textureType] = CD3DX12_RESOURCE_BARRIER::Transition(
-                            material.Textures[textureType].Get(),
-                            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-                            D3D12_RESOURCE_STATE_COMMON);
-                    }
-                    m_commandList->ResourceBarrier(static_cast<UINT>(materialTextureBarriers.size()), materialTextureBarriers.data());*/
                 }
             }
 

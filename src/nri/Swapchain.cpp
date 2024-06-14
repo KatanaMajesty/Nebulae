@@ -77,6 +77,7 @@ namespace Neb::nri
 
     void Swapchain::Present(BOOL vsync)
     {
+        // TODO: Implement tearing for variable refresh rate monitors
         UINT syncInterval = vsync ? 1 : 0;
         nri::ThrowIfFailed(m_dxgiSwapchain->Present(syncInterval, 0));
     }

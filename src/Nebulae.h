@@ -1,13 +1,15 @@
 #pragma once
 
+#include "common/TimeWatch.h"
+
+#include "core/GLTFScene.h"
+#include "core/GLTFSceneImporter.h"
+
+#include "nri/DepthStencilBuffer.h"
 #include "nri/Manager.h"
 #include "nri/Shader.h"
 #include "nri/ShaderCompiler.h"
 #include "nri/Swapchain.h"
-#include "nri/DepthStencilBuffer.h"
-
-#include "core/GLTFScene.h"
-#include "core/GLTFSceneImporter.h"
 
 namespace Neb
 {
@@ -41,6 +43,9 @@ namespace Neb
         GLTFSceneImporter& GetSceneImporter() { return m_sceneImporter; }
 
     private:
+        TimeWatch<dur::Milliseconds> m_timeWatch;
+        int64_t m_lastFrameSeconds = {};
+
         nri::ShaderCompiler m_shaderCompiler;
         nri::Swapchain m_swapchain;
         nri::DepthStencilBuffer m_depthStencilBuffer;

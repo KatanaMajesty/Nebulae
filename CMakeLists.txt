@@ -8,6 +8,7 @@ set_property(TARGET DXRNebulae PROPERTY CXX_STANDARD 23)
 target_sources(DXRNebulae PRIVATE
     "src/common/Defines.h"
     "src/common/Log.h"
+    "src/common/TimeWatch.h"
     "src/core/GLTFScene.cpp"
     "src/core/GLTFScene.h"
     "src/core/GLTFSceneImporter.cpp"
