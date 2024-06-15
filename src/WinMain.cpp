@@ -78,8 +78,10 @@ INT WINAPI WinMain(
     constexpr const char* lpWindowName = "DirectX Raytracing Nebulae";
 
     WNDCLASS wndClass = {};
+    wndClass.style = CS_HREDRAW | CS_VREDRAW;
     wndClass.lpfnWndProc = WindowProc;
     wndClass.hInstance = hInstance;
+    wndClass.hCursor = LoadCursor(NULL, IDC_ARROW);
     wndClass.lpszClassName = lpClassName;
     RegisterClass(&wndClass);
 
