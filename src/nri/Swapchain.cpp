@@ -86,11 +86,8 @@ namespace Neb::nri
     {
         // We only release rt buffers, no need to release rtvs, as they do not affect resizing
         for (UINT i = 0; i < NumBackbuffers; ++i)
-        {
-            // if new refcount > 0 -> bail, no need to release all of them, we will fail anyways
-            if (m_renderTargets->Reset() != 0)
-                return FALSE;
-        }
+            m_renderTargets[i].Reset();
+
         return TRUE;
     }
 

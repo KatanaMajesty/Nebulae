@@ -6,6 +6,12 @@
 namespace Neb
 {
 
+    Nebulae& Nebulae::Get()
+    {
+        static Nebulae instance;
+        return instance;
+    }
+
     BOOL Nebulae::Init(const AppSpec& appSpec)
     {
         // Firstly initialize rendering interface manager
@@ -104,13 +110,18 @@ namespace Neb
 
         // At the very end begin the time watch
         m_timeWatch.Begin();
-        return TRUE;
+        m_isInitialized = TRUE;
+        return m_isInitialized;
     }
 
     void Nebulae::Resize(UINT width, UINT height)
     {
+        // Before resizing swapchain wait for all frames to finish rendering
+        WaitForFrameToFinish();
+
         // Handle the return result better
         m_swapchain.Resize(width, height);
+        m_depthStencilBuffer.Resize(width, height);
     }
 
     void Nebulae::Render(GLTFScene* scene)
@@ -231,17 +242,24 @@ namespace Neb
         nri::ThrowIfFailed(queue->Signal(fence, ++fenceValue));
 
         // At the very end, when we are done - wait asset processing for completion
+        WaitForFrameToFinish();
+    }
+
+    void Nebulae::WaitForFrameToFinish()
+    {
+        nri::Manager& nriManager = nri::Manager::Get();
+     
+        ID3D12Fence* fence = nriManager.GetFence(nri::eCommandContextType_Graphics);
+        UINT64& fenceValue = nriManager.GetFenceValue(nri::eCommandContextType_Graphics);
+
         if (fence->GetCompletedValue() < fenceValue)
         {
-            if (!m_fenceEvent)
-            {
-                m_fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
-                NEB_ASSERT(m_fenceEvent);
-            }
+            HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
+            NEB_ASSERT(fenceEvent);
 
             // Wait until the fence is completed.
-            nri::ThrowIfFailed(fence->SetEventOnCompletion(fenceValue, m_fenceEvent));
-            WaitForSingleObject(m_fenceEvent, INFINITE);
+            nri::ThrowIfFailed(fence->SetEventOnCompletion(fenceValue, fenceEvent));
+            WaitForSingleObject(fenceEvent, INFINITE);
         }
     }
 

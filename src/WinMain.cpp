@@ -47,10 +47,19 @@ std::filesystem::path GetModuleDirectory()
 
 LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+    Neb::Nebulae& nebulae = Neb::Nebulae::Get();
     switch (uMsg)
     {
     case WM_DESTROY:
         PostQuitMessage(0);
+        break;
+    case WM_SIZE:
+        if (nebulae.IsInitialized())
+        {
+            UINT width = LOWORD(lParam);
+            UINT height = HIWORD(lParam);
+            nebulae.Resize(width, height);
+        }
         break;
     }
 
@@ -74,6 +83,12 @@ INT WINAPI WinMain(
     wndClass.lpszClassName = lpClassName;
     RegisterClass(&wndClass);
 
+    // This code will be moved to Nebulae soon
+    static const std::filesystem::path AssetsDir = GetModuleDirectory().parent_path().parent_path().parent_path() / "assets";
+
+    Neb::nri::Manager& nriManager = Neb::nri::Manager::Get();
+    nriManager.Init();
+
     HWND hwnd = CreateWindowEx(
         0,                              // Optional window styles.
         lpClassName,                    // Window class
@@ -96,13 +111,7 @@ INT WINAPI WinMain(
 
     ShowWindow(hwnd, nShowCmd);
 
-    // This code will be moved to Nebulae soon
-    static const std::filesystem::path AssetsDir = GetModuleDirectory().parent_path().parent_path().parent_path() / "assets";
-
-    Neb::nri::Manager& nriManager = Neb::nri::Manager::Get();
-    nriManager.Init();
-
-    Neb::Nebulae nebulae;
+    Neb::Nebulae& nebulae = Neb::Nebulae::Get();
     Neb::nri::ThrowIfFalse(nebulae.Init(Neb::AppSpec{ .Handle = hwnd, .AssetsDirectory = AssetsDir }));
 
     Neb::GLTFSceneImporter& importer = nebulae.GetSceneImporter();
