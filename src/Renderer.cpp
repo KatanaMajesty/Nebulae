@@ -84,18 +84,21 @@ namespace Neb
             m_commandList->SetPipelineState(m_pipelineState.Get());
 
             static float rotationAngleY = 0.0f;
-            rotationAngleY += 30.0f * timestep;
+            // rotationAngleY += 30.0f * timestep;
 
             const Vec3 rotationAngles = Vec3(ToRadians(90.0f), ToRadians(rotationAngleY), ToRadians(0.0f));
 
-            Mat4 translation = Mat4::CreateTranslation(Vec3(0.0f, 0.0f, -2.0f));
+            Mat4 translation = Mat4::CreateTranslation(Vec3(0.0f, 0.0f, 0.0f));
             Mat4 rotation = Mat4::CreateFromYawPitchRoll(rotationAngles);
             Mat4 scale = Mat4::CreateScale(Vec3(1.0f));
 
+            const Mat4& view = scene->Camera.UpdateLookAt();
             const float aspectRatio = m_swapchain.GetWidth() / static_cast<float>(m_swapchain.GetHeight());
+            Mat4 projection = Mat4::CreatePerspectiveFieldOfView(ToRadians(60.0f), aspectRatio, 0.1f, 100.0f);
+
             CbInstanceInfo cbInstanceInfo = CbInstanceInfo{
                 .InstanceToWorld = scale * rotation * translation,
-                .Projection = Mat4::CreatePerspectiveFieldOfView(ToRadians(60.0f), aspectRatio, 0.1f, 100.0f),
+                .ViewProj = view * projection,
             };
 
             std::memcpy(m_cbInstanceInfoBufferMapping, &cbInstanceInfo, sizeof(CbInstanceInfo));

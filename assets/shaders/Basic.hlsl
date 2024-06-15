@@ -16,7 +16,7 @@ struct InstanceInfo
 {
     // Requires 256 alignment
     float4x4 InstanceToWorld;
-    float4x4 Projection; // Currently projection is in instance info, just for the time being
+    float4x4 ViewProj; // Currently view-proj is in instance info, just for the time being
 };
 
 ConstantBuffer<InstanceInfo> cbInstanceInfo : register(b0);
@@ -26,7 +26,7 @@ VSOutput VSMain(VSInput input)
     float4 worldPos = mul(float4(input.Position, 1.0), cbInstanceInfo.InstanceToWorld);
 
     VSOutput output;
-    output.Pos = mul(worldPos, cbInstanceInfo.Projection);
+    output.Pos = mul(worldPos, cbInstanceInfo.ViewProj);
     output.TexUv = input.TexCoords;
 
     return output;

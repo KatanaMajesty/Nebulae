@@ -1,9 +1,12 @@
-#include <stdio.h>
-
 #include <filesystem>
+
+#include "core/Math.h"
 #include "common/Log.h"
+#include "input/InputManager.h"
 #include "Nebulae.h"
+
 #include "Win.h"
+#include <windowsx.h> // For GET_X_LPARAM/GET_Y_LPARAM 
 
 struct WIN32Console
 {
@@ -57,6 +60,56 @@ LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             nebulae.Resize(width, height);
         }
         break;
+    // Input events for InputManager
+    case WM_LBUTTONDBLCLK:
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP: {
+        WORD flags = LOWORD(wParam);
+        Neb::EMouseButton button = Neb::eMouseButton_Left;
+        Neb::EMouseButtonStates states = (flags & MK_LBUTTON) ? Neb::eMouseButtonState_ClickedOnce : Neb::eMouseButtonState_Released;
+        if (states == Neb::eMouseButtonState_ClickedOnce && uMsg == WM_LBUTTONDBLCLK)
+            states = Neb::eMouseButtonState_ClickedTwice;
+
+        Neb::InputManager::Get().GetMouse().SetMouseButtonStates(button, states);
+    }; break;
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_RBUTTONDBLCLK: {
+        WORD flags = LOWORD(wParam);
+        Neb::EMouseButton button = Neb::eMouseButton_Right;
+        Neb::EMouseButtonStates states = (flags & MK_RBUTTON) ? Neb::eMouseButtonState_ClickedOnce : Neb::eMouseButtonState_Released;
+        if (states == Neb::eMouseButtonState_ClickedOnce && uMsg == WM_RBUTTONDBLCLK)
+            states = Neb::eMouseButtonState_ClickedTwice;
+
+        Neb::InputManager::Get().GetMouse().SetMouseButtonStates(button, states);
+    }; break;
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MBUTTONDBLCLK: {
+        WORD flags = LOWORD(wParam);
+        Neb::EMouseButton button = Neb::eMouseButton_Middle;
+        Neb::EMouseButtonStates states = (flags & MK_MBUTTON) ? Neb::eMouseButtonState_ClickedOnce : Neb::eMouseButtonState_Released;
+        if (states == Neb::eMouseButtonState_ClickedOnce && uMsg == WM_MBUTTONDBLCLK)
+        {
+            states = Neb::eMouseButtonState_ClickedTwice;
+        }
+
+        Neb::InputManager::Get().GetMouse().SetMouseButtonStates(button, states);
+    }; break;
+    case WM_MOUSEWHEEL:
+    {
+        SHORT delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        int32_t val = Neb::Signum(delta);
+
+        Neb::InputManager::Get().GetMouse().NotifyWheelScroll(val);
+    }; break;
+    case WM_MOUSEMOVE:
+    {
+        INT x = GET_X_LPARAM(lParam);
+        INT y = GET_Y_LPARAM(lParam);
+
+        Neb::InputManager::Get().GetMouse().SetCursorHotspot(Neb::MouseCursorHotspot{ .X = x, .Y = y });
+    }; break;
     }
 
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
@@ -114,6 +167,15 @@ INT WINAPI WinMain(
 
     Neb::GLTFSceneImporter& importer = nebulae.GetSceneImporter();
     Neb::nri::ThrowIfFalse(importer.ImportScenesFromFile(AssetsDir / "DamagedHelmet" / "DamagedHelmet.gltf"));
+
+    // TODO: This is currently hardcoded as we know that very first scene will be used for rendering, thus we register its callbacks
+    Neb::Scene* scene = importer.ImportedScenes.front().get();
+    Neb::Mouse& mouse = Neb::InputManager::Get().GetMouse();
+    {
+        mouse.RegisterCallback<Neb::MouseEvent_Scrolled>(&Neb::Scene::OnMouseScroll, scene);
+        mouse.RegisterCallback<Neb::MouseEvent_CursorHotspotChanged>(&Neb::Scene::OnMouseCursorMoved, scene);
+        mouse.RegisterCallback<Neb::MouseEvent_ButtonInteraction>(&Neb::Scene::OnMouseButtonInteract, scene);
+    }
 
     MSG msg = {};
     while (msg.message != WM_QUIT)

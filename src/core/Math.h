@@ -1,6 +1,15 @@
 #pragma once
 
 #include <numbers>
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers.
+#endif
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif					// Exclude rarely-used stuff from Windows headers.
+
 #include <d3d12.h> // Include before SimpleMath to have interop between D3D12 and the library
 #include "DirectXTK12/Include/SimpleMath.h"
 
@@ -45,5 +54,8 @@ namespace Neb
         static constexpr float Mul = std::numbers::pi_v<float> / 180.0f;
         return t * Mul;
     }
+
+    template<typename T> 
+    int32_t Signum(T val) { return (T(0) < val) - (val < T(0)); }
 
 } // Neb namespace

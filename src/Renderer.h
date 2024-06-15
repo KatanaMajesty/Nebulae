@@ -15,7 +15,7 @@ namespace Neb
     struct alignas(256) CbInstanceInfo
     {
         Neb::Mat4 InstanceToWorld;
-        Neb::Mat4 Projection;
+        Neb::Mat4 ViewProj;
     };
 
     class Renderer
