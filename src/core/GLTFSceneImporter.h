@@ -5,7 +5,7 @@
 #include <memory>
 #include <TinyGLTF/tiny_gltf.h>
 
-#include "GLTFScene.h"
+#include "Scene.h"
 #include "../nri/stdafx.h"
 #include "../nri/Manager.h"
 #include "../nri/DescriptorAllocation.h"
@@ -25,12 +25,12 @@ namespace Neb
         void Clear();
 
         // Maybe make them private? Dont really care now
-        std::vector<std::unique_ptr<GLTFScene>> ImportedScenes;
+        std::vector<std::unique_ptr<Scene>> ImportedScenes;
     
     private:
         // return false if failed to import scene. In such case, the entire scene will be discarded and
         // some warning will be logged
-        bool ImportScene(GLTFScene* scene, tinygltf::Scene& src);
+        bool ImportScene(Scene* scene, tinygltf::Scene& src);
 
         // We want to immediately convert all the images of the scene to D3D12 resources
         // so that we avoid lazy-loading them as well as loading them more than once
@@ -40,7 +40,7 @@ namespace Neb
         void WaitD3D12Resources();
 
         // Node processing
-        bool ImportGLTFNode(GLTFScene* scene, tinygltf::Scene& src, int32_t nodeID);
+        bool ImportGLTFNode(Scene* scene, tinygltf::Scene& src, int32_t nodeID);
         bool ImportStaticMesh(nri::StaticMesh& mesh, tinygltf::Mesh& src);
         
         nri::D3D12Rc<ID3D12Resource> GetTextureFromGLTFScene(int32_t index);

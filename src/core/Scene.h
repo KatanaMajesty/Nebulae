@@ -6,7 +6,7 @@
 namespace Neb
 {
 
-    struct GLTFScene
+    struct Scene
     {
         std::vector<nri::StaticMesh> StaticMeshes;
     };

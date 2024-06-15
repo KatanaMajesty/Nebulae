@@ -5,10 +5,6 @@
 #include "Nebulae.h"
 #include "Win.h"
 
-// TODO: Temp -> to be moved to nebulae
-#include "core/GLTFScene.h"
-#include "core/GLTFSceneImporter.h"
-
 struct WIN32Console
 {
     WIN32Console()
@@ -129,8 +125,7 @@ INT WINAPI WinMain(
         }
 
         // Tick application here
-        Neb::GLTFScene* scene = importer.ImportedScenes.front().get();
-        nebulae.Render(scene);
+        nebulae.Render();
     }
 
     UnregisterClass(lpClassName, hInstance);

@@ -1,15 +1,9 @@
 #pragma once
 
 #include "common/TimeWatch.h"
-
-#include "core/GLTFScene.h"
+#include "core/Scene.h"
 #include "core/GLTFSceneImporter.h"
-
-#include "nri/DepthStencilBuffer.h"
-#include "nri/Manager.h"
-#include "nri/Shader.h"
-#include "nri/ShaderCompiler.h"
-#include "nri/Swapchain.h"
+#include "Renderer.h"
 
 namespace Neb
 {
@@ -18,13 +12,6 @@ namespace Neb
     {
         HWND Handle = NULL;
         std::filesystem::path AssetsDirectory;
-    };
-
-    // All CBs require 256 alignment
-    struct alignas(256) CbInstanceInfo
-    {
-        Neb::Mat4 InstanceToWorld;
-        Neb::Mat4 Projection;
     };
 
     class Nebulae
@@ -38,37 +25,32 @@ namespace Neb
 
         static Nebulae& Get();
     
-        inline BOOL IsInitialized() const { return m_isInitialized; }
+        bool Init(const AppSpec& appSpec);
+        bool IsInitialized() const { return m_isInitialized; }
 
-        BOOL Init(const AppSpec& appSpec);
+        // TODO: Currently render just takes the first imported scene in GLTFSceneImporter, if any
+        // this behavior should be expanded upon by allowing more control on the API, but the idea should
+        // still be the same
+        void Render();
         void Resize(UINT width, UINT height);
-        void Render(GLTFScene* scene);
 
-        // TODO: Temporarily here, will be removed asap
+        const AppSpec& GetSpecification() const { return m_appSpec; }
+
         GLTFSceneImporter& GetSceneImporter() { return m_sceneImporter; }
+        const GLTFSceneImporter& GetSceneImporter() const { return m_sceneImporter; }
+
+        Renderer& GetRenderer() { return m_renderer; }
+        const Renderer& GetRenderer() const { return m_renderer; }
 
     private:
-        BOOL m_isInitialized = FALSE;
+        bool m_isInitialized = FALSE;
+        AppSpec m_appSpec = {};
 
         TimeWatch<dur::Milliseconds> m_timeWatch;
         int64_t m_lastFrameSeconds = {};
 
-        nri::ShaderCompiler m_shaderCompiler;
-
-        void WaitForFrameToFinish();
-        nri::Swapchain m_swapchain;
-        nri::DepthStencilBuffer m_depthStencilBuffer;
-
         GLTFSceneImporter m_sceneImporter;
-
-        nri::D3D12Rc<ID3D12GraphicsCommandList> m_commandList;
-        nri::D3D12Rc<ID3D12RootSignature> m_rootSignature;
-        nri::D3D12Rc<ID3D12PipelineState> m_pipelineState;
-
-        void InitInstanceInfoCb();
-        CbInstanceInfo* m_cbInstanceInfoBufferMapping = nullptr;
-        nri::D3D12Rc<ID3D12Resource> m_cbInstanceInfoBuffer;
-        nri::DescriptorAllocation m_cbInstanceInfoDescriptor;
+        Renderer m_renderer;
     };
 
 }

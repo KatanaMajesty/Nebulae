@@ -28,7 +28,7 @@ namespace Neb
 
         for (tinygltf::Scene& src : m_GLTFModel.scenes)
         {
-            std::unique_ptr<GLTFScene> scene = std::make_unique<GLTFScene>();
+            std::unique_ptr<Scene> scene = std::make_unique<Scene>();
             if (ImportScene(scene.get(), src))
             {
                 // If successfully imported - move the scene to the list of imported ones,
@@ -56,7 +56,7 @@ namespace Neb
         m_GLTFBuffers.clear();
     }
 
-    bool GLTFSceneImporter::ImportScene(GLTFScene* scene, tinygltf::Scene& src)
+    bool GLTFSceneImporter::ImportScene(Scene* scene, tinygltf::Scene& src)
     {
         for (int32_t nodeID : src.nodes)
         {
@@ -280,7 +280,7 @@ namespace Neb
         }
     }
 
-    bool GLTFSceneImporter::ImportGLTFNode(GLTFScene* scene, tinygltf::Scene& src, int32_t nodeID)
+    bool GLTFSceneImporter::ImportGLTFNode(Scene* scene, tinygltf::Scene& src, int32_t nodeID)
     {
         NEB_ASSERT(nodeID >= 0);
         tinygltf::Node& node = m_GLTFModel.nodes[nodeID];

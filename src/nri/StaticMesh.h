@@ -45,7 +45,7 @@ namespace Neb::nri
         std::vector<Material> SubmeshMaterials; // TODO: Maybe replace with proxies, figure out best way to cache
     };
 
-    static constexpr std::array<D3D12_INPUT_ELEMENT_DESC, 3> StaticMeshInputLayout = {
+    static constexpr std::array StaticMeshInputLayout = {
         D3D12_INPUT_ELEMENT_DESC
         {
             .SemanticName = "POSITION",
