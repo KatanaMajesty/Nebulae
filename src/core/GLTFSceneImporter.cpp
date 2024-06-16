@@ -38,9 +38,14 @@ namespace Neb
         }
 
         // Before returning wait for scene to be fully loaded
-        WaitD3D12Resources();
-        m_stagingBuffers.clear(); // cleanup staging buffers
+        WaitD3D12ResourcesOnCopyQueue();
         
+        // At the very end submit postprocessing work for static mesh
+        // Postprocessing work may vary, but as of now it is just generating GPU buffer to store tangents
+        nri::ThrowIfFalse(SubmitPostprocessingD3D12Resources());
+        WaitD3D12ResourcesOnCopyQueue();
+
+        m_stagingBuffers.clear(); // cleanup staging buffers
         return !ImportedScenes.empty(); // If no scenes were imported then we failed apparently
     }
 
@@ -261,7 +266,145 @@ namespace Neb
         return true;
     }
 
-    void GLTFSceneImporter::WaitD3D12Resources()
+    bool GLTFSceneImporter::SubmitPostprocessingD3D12Resources()
+    {
+        // The main goal if this method is to ensure that all of the post-processing work is submitted to the GPU
+        //
+        // Initial idea here was to handle manually calculated tangents, as we need to submit them into buffers as well
+        // And also we need to create buffer views for each submesh
+        nri::Manager& nriManager = nri::Manager::Get();
+        NEB_ASSERT(m_stagingCommandList); // Do no lazy initialize it here, just assume it is created
+
+        // Firstly try to early return if no postprocessing needed
+        if (!IsTangentPostprocessingNeeded())
+            return true;
+
+        nri::ThrowIfFailed(m_stagingCommandList->Reset(nriManager.GetCommandAllocator(nri::eCommandContextType_Copy), nullptr));
+        {
+            nri::ThrowIfFalse(SubmitTangentPostprocessingD3D12Buffer());
+        }
+        nri::ThrowIfFailed(m_stagingCommandList->Close());
+
+        ID3D12CommandList* pCommandLists[] = { m_stagingCommandList.Get() };
+        ID3D12CommandQueue* copyQueue = nriManager.GetCommandQueue(nri::eCommandContextType_Copy);
+        copyQueue->ExecuteCommandLists(_countof(pCommandLists), pCommandLists);
+
+        ID3D12Fence* copyFence = nriManager.GetFence(nri::eCommandContextType_Copy);
+        UINT64& copyFenceValue = nriManager.GetFenceValue(nri::eCommandContextType_Copy);
+        nri::ThrowIfFailed(copyQueue->Signal(copyFence, ++copyFenceValue));
+        return true;
+    }
+
+    bool GLTFSceneImporter::IsTangentPostprocessingNeeded()
+    {
+        for (auto& scene : ImportedScenes)
+            for (nri::StaticMesh& mesh : scene->StaticMeshes)
+                for (nri::StaticSubmesh& submesh : mesh.Submeshes)
+                {
+                    const bool hasRawTangents = !submesh.Attributes[nri::eAttributeType_Tangents].empty();
+                    if (hasRawTangents && !submesh.AttributeBuffers[nri::eAttributeType_Tangents])
+                        return true;
+                }
+
+        return false;
+    }
+
+    bool GLTFSceneImporter::SubmitTangentPostprocessingD3D12Buffer()
+    {
+        static constexpr size_t TangentStride = sizeof(Vec4);
+
+        // Firstly we need to calculate the total amount of tangents in the entire scene hiearachy
+        uint32_t numTotalVertices = 0;
+        for (auto& scene : ImportedScenes)
+            for (nri::StaticMesh& mesh : scene->StaticMeshes)
+                for (nri::StaticSubmesh& submesh : mesh.Submeshes)
+                {
+                    // We shoud assume that there are raw tangents everywhere
+                    NEB_ASSERT(!submesh.Attributes[nri::eAttributeType_Tangents].empty());
+                    NEB_ASSERT(submesh.AttributeStrides[nri::eAttributeType_Tangents] == TangentStride);
+                    numTotalVertices += submesh.NumVertices;
+                }
+    
+        NEB_ASSERT(numTotalVertices > 0);
+        nri::Manager& nriManager = nri::Manager::Get();
+
+        size_t numTotalBytes = TangentStride * numTotalVertices;
+        nri::D3D12Rc<ID3D12Resource> tangentBuffer = m_GLTFBuffers.emplace_back();
+        {
+            D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{ 
+                .SizeInBytes = numTotalBytes, 
+                .Alignment = 0 
+            });
+            D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
+            D3D12MA::ALLOCATION_DESC allocDesc = {
+                .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
+                .HeapType = D3D12_HEAP_TYPE_DEFAULT,
+            };
+
+            nri::D3D12Rc<D3D12MA::Allocation> allocation;
+            nri::ThrowIfFailed(allocator->CreateResource(
+                &allocDesc,
+                &resourceDesc,
+                D3D12_RESOURCE_STATE_COMMON, // No need to use copy dest state. Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
+                nullptr, allocation.GetAddressOf(),
+                IID_PPV_ARGS(tangentBuffer.GetAddressOf()))
+            );
+        }
+        
+        nri::D3D12Rc<ID3D12Resource> uploadBuffer;
+        {
+            D3D12_RESOURCE_DESC uploadDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{ 
+                .SizeInBytes = numTotalBytes, 
+                .Alignment = 0 
+            });
+            D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
+            D3D12MA::ALLOCATION_DESC allocDesc = {
+                .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
+                .HeapType = D3D12_HEAP_TYPE_UPLOAD,
+            };
+
+            nri::D3D12Rc<D3D12MA::Allocation> allocation;
+            nri::ThrowIfFailed(allocator->CreateResource(
+                &allocDesc,
+                &uploadDesc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, // This is the required starting state for an upload heap
+                nullptr, allocation.GetAddressOf(),
+                IID_PPV_ARGS(uploadBuffer.GetAddressOf()))
+            );
+            m_stagingBuffers.push_back(uploadBuffer);
+
+            // Map the data
+            void* mapping;
+            nri::ThrowIfFailed(uploadBuffer->Map(0, nullptr, &mapping));
+
+            // Now the idea here is for each submesh we would get its data and copy it to the offset buffer
+            // Afterwards we would create and offset information for that submesh
+            // and create a view for that submesh finally
+            std::byte* data = reinterpret_cast<std::byte*>(mapping);
+            size_t currentOffsetInBytes = 0;
+            for (auto& scene : ImportedScenes)
+                for (nri::StaticMesh& mesh : scene->StaticMeshes)
+                    for (nri::StaticSubmesh& submesh : mesh.Submeshes)
+                    {
+                        size_t numBytes = submesh.Attributes[nri::eAttributeType_Tangents].size();
+                        std::memcpy(data + currentOffsetInBytes, submesh.Attributes[nri::eAttributeType_Tangents].data(), numBytes);
+                        
+                        submesh.AttributeBuffers[nri::eAttributeType_Tangents] = tangentBuffer;
+                        submesh.AttributeViews[nri::eAttributeType_Tangents] = D3D12_VERTEX_BUFFER_VIEW{
+                            .BufferLocation = tangentBuffer->GetGPUVirtualAddress() + currentOffsetInBytes,
+                            .SizeInBytes = static_cast<UINT>(numBytes),
+                            .StrideInBytes = static_cast<UINT>(TangentStride),
+                        };
+
+                        currentOffsetInBytes += numBytes;
+                    }
+        }
+
+        m_stagingCommandList->CopyBufferRegion(tangentBuffer.Get(), 0, uploadBuffer.Get(), 0, numTotalBytes);
+        return true;
+    }
+
+    void GLTFSceneImporter::WaitD3D12ResourcesOnCopyQueue()
     {
         nri::Manager& nriManager = nri::Manager::Get();
 
@@ -332,6 +475,7 @@ namespace Neb
                 { "POSITION", nri::eAttributeType_Position },
                 { "NORMAL", nri::eAttributeType_Normal },
                 { "TEXCOORD_0", nri::eAttributeType_TexCoords },
+                { "TANGENT", nri::eAttributeType_Tangents }
             };
 
             // Set amount of vertices before processing (to get more healthy checks)
@@ -340,6 +484,10 @@ namespace Neb
             // Process each attribute separately
             for (auto& [attribute, type] : AttributeMap)
             {
+                // If no such primitive - just skip it
+                if (!primitive.attributes.contains(attribute))
+                    continue;
+
                 tinygltf::Accessor& accessor = m_GLTFModel.accessors[primitive.attributes[attribute]];
                 NEB_ASSERT(accessor.count == submesh.NumVertices); // should be equal, otherwise our bad
 
@@ -381,6 +529,7 @@ namespace Neb
                 submesh.NumIndices = accessor.count;
                 
                 // Copy buffer info, we treat it as a byte-stream
+                submesh.IndicesStride = accessor.ByteStride(bufferView);
                 submesh.Indices.clear();
                 submesh.Indices.resize(bufferView.byteLength);
                 std::memcpy(
@@ -412,16 +561,100 @@ namespace Neb
                 NEB_LOG_WARN("No indices!");
             }
             
-            // TODO: Currently no implementation for tangents, we do not use them yet. Will implement when needed :)
+            // TANGENT GENERATION
             // 
             // Optional in Nebulae are texture coords and tangents. If no tangents though - Nebulae generates them
-            if (primitive.attributes.contains("TANGENT"))
+            // In Nebulae to check if attribute is there we could just check its stride and compare it to the stride we need
+            if (submesh.Attributes[nri::eAttributeType_Tangents].empty())
             {
-                // we want to generate bitangents as well
-            }
-            else
-            {
+                // stride of tangents != 0 -> means there are tangents inside. We can work with them
                 // If no tangents provided - calculate them using vertices of primitives
+                NEB_ASSERT(submesh.AttributeStrides[nri::eAttributeType_Normal] == sizeof(Vec3));
+                NEB_ASSERT(submesh.AttributeStrides[nri::eAttributeType_Position] == sizeof(Vec3));
+                NEB_ASSERT(submesh.AttributeStrides[nri::eAttributeType_TexCoords] == sizeof(Vec2));
+
+                // Nebulae just works with triangular static meshes when generating tangents
+                // we need that to guarantee that each 3 indices of a primitive will represent a single triangle
+                NEB_ASSERT(primitive.mode == TINYGLTF_MODE_TRIANGLES);
+                NEB_ASSERT(submesh.NumIndices > 0 && submesh.NumIndices % 3 == 0);
+                
+                Vec3* normals = reinterpret_cast<Vec3*>(submesh.Attributes[nri::eAttributeType_Normal].data());
+                Vec3* positions = reinterpret_cast<Vec3*>(submesh.Attributes[nri::eAttributeType_Position].data());
+                Vec2* texCoords = reinterpret_cast<Vec2*>(submesh.Attributes[nri::eAttributeType_TexCoords].data());
+
+                // Resize the target array of tangents
+                submesh.AttributeStrides[nri::eAttributeType_Tangents] = sizeof(Vec4);
+                submesh.Attributes[nri::eAttributeType_Tangents].resize(sizeof(Vec4) * submesh.NumVertices);
+                Vec4* tangents = reinterpret_cast<Vec4*>(submesh.Attributes[nri::eAttributeType_Tangents].data());
+
+                // Needed for tangent and hardedness calculation
+                std::vector<Vec3> tan1(submesh.NumVertices);
+                std::vector<Vec3> tan2(submesh.NumVertices);
+
+                uint32_t numPrimitives = submesh.NumIndices / 3;
+                for (uint32_t i = 0; i < numPrimitives; ++i)
+                {
+                    // we handle both 32bit and 16bit indices here
+                    // https://gamedev.stackexchange.com/questions/68612/how-to-compute-tangent-and-bitangent-vectors
+                    uint32_t i0, i1, i2;
+                    if (submesh.IndicesStride == sizeof(uint32_t))
+                    {
+                        uint32_t* indices = reinterpret_cast<uint32_t*>(submesh.Indices.data());
+                        i0 = indices[(i * 3) + 0];
+                        i1 = indices[(i * 3) + 1];
+                        i2 = indices[(i * 3) + 2];
+                    }
+                    else
+                    {
+                        NEB_ASSERT(submesh.IndicesStride == sizeof(uint16_t));
+                        uint16_t* indices = reinterpret_cast<uint16_t*>(submesh.Indices.data());
+                        i0 = indices[(i * 3) + 0];
+                        i1 = indices[(i * 3) + 1];
+                        i2 = indices[(i * 3) + 2];
+                    }
+
+                    const Vec3& pos0 = positions[i0];
+                    const Vec3& pos1 = positions[i1];
+                    const Vec3& pos2 = positions[i2];
+                    Vec3 deltaPos1 = pos1 - pos0;
+                    Vec3 deltaPos2 = pos2 - pos0;
+
+                    const Vec2& uv0 = texCoords[i0];
+                    const Vec2& uv1 = texCoords[i1];
+                    const Vec2& uv2 = texCoords[i2];
+                    Vec2 deltaUv1 = uv1 - uv0;
+                    Vec2 deltaUv2 = uv2 - uv0;
+
+                    float r = 1.0f / (deltaUv1.x * deltaUv2.y - deltaUv1.y * deltaUv2.x);
+                    Vec3 sd = (deltaPos1 * deltaUv2.y - deltaPos2 * deltaUv1.y) * r;
+                    Vec3 td = (deltaPos2 * deltaUv1.x - deltaPos1 * deltaUv2.x) * r;
+
+                    // TODO: From glTF 2.0 spec https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#geometry-overview
+                    // Tangent is stored in Vec4, where Vec4.w is a sign value indicating handedness of the tangent basis
+                    // We can use that information to calculate bitangent efficiently
+                    // We will manually convert signed tangents from glTF to vec3 tangents/bitangents
+                    tan1[i0] += sd; tan2[i0] += td;
+                    tan1[i1] += sd; tan2[i1] += td;
+                    tan1[i2] += sd; tan2[i2] += td;
+                }
+
+                for (uint32_t i = 0; i < submesh.NumVertices; ++i)
+                {
+                    const Vec3& n = normals[i];
+                    const Vec3& t = tan1[i];
+
+                    // Gram-Schmidt orthogonalize
+                    Vec3 tangent;
+                    tangent = (t - n * n.Dot(t));
+                    tangent.Normalize();
+
+                    tangents[i].x = tangent.x;
+                    tangents[i].y = tangent.y;
+                    tangents[i].z = tangent.z;
+
+                    // calculate hardedness
+                    tangents[i].w = (n.Cross(t).Dot(tan2[i]) < 0.0f) ? -1.0f : 1.0f;
+                }
             }
 
             // Process submesh material

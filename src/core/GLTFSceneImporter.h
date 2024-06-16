@@ -37,7 +37,11 @@ namespace Neb
         bool SubmitD3D12Resources();
         bool SubmitD3D12Images();
         bool SubmitD3D12Buffers();
-        void WaitD3D12Resources();
+        void WaitD3D12ResourcesOnCopyQueue();
+
+        bool SubmitPostprocessingD3D12Resources();
+        bool IsTangentPostprocessingNeeded();
+        bool SubmitTangentPostprocessingD3D12Buffer();
 
         // Node processing
         bool ImportGLTFNode(Scene* scene, tinygltf::Scene& src, int32_t nodeID);

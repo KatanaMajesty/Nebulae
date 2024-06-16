@@ -4,13 +4,18 @@
 #include "../common/Log.h"
 
 #include "../Nebulae.h"
+#include "../input/InputManager.h"
 
 namespace Neb
 {
 
     void Scene::OnMouseScroll(const MouseEvent_Scrolled& event)
     {
-        Camera.AddDistance(-event.Value * 0.1f);
+        InputManager& inputManager = InputManager::Get();
+        
+        EMouseButtonStates rmbStates = inputManager.GetMouse().GetMouseButtonStates(eMouseButton_Right);
+        float scrollFactor = (rmbStates & eMouseButtonState_Clicked) ? 0.3f : 0.1f;
+        Camera.AddDistance(-event.Value * scrollFactor);
     }
 
     void Scene::OnMouseCursorMoved(const MouseEvent_CursorHotspotChanged& event)

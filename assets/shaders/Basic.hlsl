@@ -3,13 +3,16 @@ struct VSInput
 {
     float3 Position : POSITION;
     float3 Normal : NORMAL;
-    float2 TexCoords : TEX_COORDS;
+    float2 TexCoords : TEXCOORD;
+    float4 Tangent : TANGENT;
 };
 
 struct VSOutput
 {
     float4 Pos : SV_Position;
     float2 TexUv : TEXCOORD;
+    float3 Tangent : TANGENT;
+    float3 Bitangent : BITANGENT;
 
     float3 WorldNormal : WORLDNORMAL;
     float3 WorldPos : WORLDPOS;
@@ -28,13 +31,18 @@ VSOutput VSMain(in VSInput input)
 {
     float4 worldPos = mul(float4(input.Position, 1.0), cbInstanceInfo.InstanceToWorld);
 
+    float3 N = normalize(input.Normal);
+    float3 tangent = input.Tangent.xyz;
+    float3 bitangent = normalize(cross(N, tangent) * input.Tangent.w);
+
     VSOutput output;
     output.Pos = mul(worldPos, cbInstanceInfo.ViewProj);
     output.TexUv = input.TexCoords;
+    output.Tangent = tangent;
+    output.Bitangent = bitangent;
 
     // TODO: we can now multiply normal with world matrix as we do not use scaling
     output.WorldNormal = normalize(mul(float4(input.Normal, 0.0), cbInstanceInfo.InstanceToWorld).xyz);
-    //output.WorldNormal = input.Normal;
     output.WorldPos = worldPos.xyz;
 
     return output;
@@ -52,10 +60,16 @@ float4 PSMain(in VSOutput input) : SV_Target0
 {
     static const float3 L = normalize(float3(-0.5, -1.0, -1.0));
     static const float3 Ambient = float3(0.04, 0.01, 0.02);
-
+        
     float3 N = normalize(input.WorldNormal);
-    float incidenceFactor = saturate(dot(-L, N));
+    float3x3 TBN = float3x3(normalize(input.Tangent), normalize(input.Bitangent), N);
+
+    // Surface normal
+    float3 NSampled = MaterialTextures[kMaterialTextures_NormalMapIndex].Sample(StaticSampler, input.TexUv).xyz * 2.0 - 1.0;
+    float3 SN = normalize(mul(NSampled, TBN));
+
+    float incidenceFactor = clamp(dot(-L, SN), 0.01, 1.0);
 
     float3 albedo = MaterialTextures[kMaterialTextures_AlbedoMapIndex].Sample(StaticSampler, input.TexUv).rgb;
-    return float4(Ambient + incidenceFactor * albedo, 1.0);
+    return float4((Ambient + incidenceFactor) * albedo, 1.0);
 }

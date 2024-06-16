@@ -201,14 +201,14 @@ namespace Neb
         m_vsBasic = m_shaderCompiler.CompileShader(
             shaderFilepath,
             nri::ShaderCompilationDesc("VSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Vertex),
-            nri::eShaderCompilationFlag_StripDebug
+            nri::eShaderCompilationFlag_None
         );
         NEB_ASSERT(m_vsBasic.HasBinary());
 
         m_psBasic = m_shaderCompiler.CompileShader(
             shaderFilepath,
             nri::ShaderCompilationDesc("PSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Pixel),
-            nri::eShaderCompilationFlag_StripDebug
+            nri::eShaderCompilationFlag_None
         );
         NEB_ASSERT(m_psBasic.HasBinary());
 
