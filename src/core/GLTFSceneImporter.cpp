@@ -652,7 +652,7 @@ namespace Neb
                     tangents[i].y = tangent.y;
                     tangents[i].z = tangent.z;
 
-                    // calculate hardedness
+                    // calculate handedness
                     tangents[i].w = (n.Cross(t).Dot(tan2[i]) < 0.0f) ? -1.0f : 1.0f;
                 }
             }
