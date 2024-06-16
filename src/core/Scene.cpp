@@ -34,9 +34,9 @@ namespace Neb
             const float normDy = dy / static_cast<float>(width) * 2.0f;
             const float normDx = dx / static_cast<float>(height) * 2.0f;
 
-            Vec2 prevRotation = Camera.GetRotationXy();
-            float rotX = normDy * 180.0f;
-            float rotY = normDx * 90.0f;
+            const Vec2 prevRotation = Camera.GetRotationXy();
+            float rotX = normDy * RotationAngles.x;
+            float rotY = normDx * RotationAngles.y;
             if (prevRotation.x + rotX < -89.9f || prevRotation.x + rotX > 89.9f)
                 rotX = 0.0f;
 

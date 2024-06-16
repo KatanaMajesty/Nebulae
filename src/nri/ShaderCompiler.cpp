@@ -78,9 +78,19 @@ namespace Neb::nri
 
         // Such a cool wstr -> str convertion hack lol
         std::string lpcstrPath = std::filesystem::path(filepath).string();
-        std::wstring wPdbPath = std::filesystem::path(filepath)
-            .replace_extension("pdb")
-            .wstring();
+
+        // Only bother initing PDB info if we want to strip PDB really
+        std::wstring wPdbPath;
+        if (flags & eShaderCompilationFlag_StripDebug)
+        {
+            std::filesystem::path resolvedPath = std::filesystem::path(filepath);
+            NEB_ASSERT(resolvedPath.has_parent_path());
+
+            std::filesystem::path directory = resolvedPath.parent_path();
+            std::wstring wFilename = std::filesystem::path(filepath).filename().replace_extension().wstring();
+
+            wPdbPath = (directory / (wFilename.append(L"_").append(targetProfile).append(L".pdb"))).wstring();
+        }
 
         std::vector<LPCWSTR> dxcArguments(dxcDefault.begin(), dxcDefault.end());
         if (flags & eShaderCompilationFlag_StripDebug)
