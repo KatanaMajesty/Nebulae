@@ -16,12 +16,10 @@ namespace Neb
         void OnMouseButtonInteract(const MouseEvent_ButtonInteraction& event);
 
         std::vector<nri::StaticMesh> StaticMeshes;
-        InspectCamera Camera;
-    
-    private:
+
         // TODO: Camera related stuff. Will be moved/removed
-        Vec2 m_prevCursorPos;
-        bool m_ableToInspect = false;
+        InspectCamera Camera;
+        bool AbleToInspect = false;
     };
 
 } // Neb namespace

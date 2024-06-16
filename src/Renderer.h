@@ -25,6 +25,9 @@ namespace Neb
         
         void RenderScene(float timestep, Scene* scene);
         void Resize(UINT width, UINT height);
+
+        UINT GetWidth() const { return m_swapchain.GetWidth(); }
+        UINT GetHeight() const { return m_swapchain.GetHeight(); }
         
     private:
         void WaitForFrameToFinish();

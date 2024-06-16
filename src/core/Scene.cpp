@@ -3,24 +3,44 @@
 #include "../common/Defines.h"
 #include "../common/Log.h"
 
+#include "../Nebulae.h"
+
 namespace Neb
 {
 
     void Scene::OnMouseScroll(const MouseEvent_Scrolled& event)
     {
-        NEB_LOG_INFO("Delta is {}", event.Value);
         Camera.AddDistance(-event.Value * 0.1f);
     }
 
     void Scene::OnMouseCursorMoved(const MouseEvent_CursorHotspotChanged& event)
     {
-        if (m_ableToInspect)
+        if (AbleToInspect)
         {
-            int32_t deltaX = event.NextHotspot.X - event.PrevHotspot.X;
-            int32_t deltaY = event.PrevHotspot.Y - event.NextHotspot.Y;
-            Camera.AddRotationXy(Vec2(deltaX, deltaY));
+            // we want 180 degrees from center of the screen to its edge
+            // to do that we need width/height
+            Nebulae& nebulae = Nebulae::Get();
+            NEB_ASSERT(nebulae.IsInitialized());
 
-            NEB_LOG_INFO("{} {}", deltaX, deltaY);
+            Renderer& renderer = nebulae.GetRenderer();
+            uint32_t width = renderer.GetWidth();
+            uint32_t height = renderer.GetHeight();
+            NEB_ASSERT(width > 0 && height > 0);
+
+            int32_t dx = event.NextHotspot.X - event.PrevHotspot.X; // rotation across x plane (pitch)
+            int32_t dy = event.NextHotspot.Y - event.PrevHotspot.Y; // rotation across y plane (yaw)
+            
+            // we need to swap them, as left/right would correspong to yaw rotation
+            const float normDy = dy / static_cast<float>(width) * 2.0f;
+            const float normDx = dx / static_cast<float>(height) * 2.0f;
+
+            Vec2 prevRotation = Camera.GetRotationXy();
+            float rotX = normDy * 180.0f;
+            float rotY = normDx * 90.0f;
+            if (prevRotation.x + rotX < -89.9f || prevRotation.x + rotX > 89.9f)
+                rotX = 0.0f;
+
+            Camera.AddRotationXy(Vec2(rotX, rotY));
         }
     }
 
@@ -29,7 +49,7 @@ namespace Neb
         if (event.Button == eMouseButton_Left)
         {
             // ternary operator incident (fetish)
-            m_ableToInspect = (event.NextStates & eMouseButtonState_Released) ? 
+            AbleToInspect = (event.NextStates & eMouseButtonState_Released) ?
                 false : 
                 ((event.NextStates & eMouseButtonState_Clicked) ? true : false);
         }

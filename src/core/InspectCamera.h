@@ -32,9 +32,9 @@ namespace Neb
             Vec2 rot = Vec2(ToRadians(m_rotationXy.x), ToRadians(m_rotationXy.y));
 
             Vec3 xyRot;
-            xyRot.x = std::cos(rot.y) + std::cos(rot.x);
+            xyRot.x = std::cos(rot.y) * std::cos(rot.x);
             xyRot.y = std::sin(rot.x);
-            xyRot.z = std::sin(rot.y) + std::cos(rot.x);
+            xyRot.z = std::sin(rot.y) * std::cos(rot.x);
             xyRot.Normalize();
             xyRot *= m_distance;
             return m_origin + xyRot;
