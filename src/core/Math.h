@@ -1,6 +1,7 @@
 #pragma once
 
 #include <numbers>
+#include <concepts>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers.
@@ -55,7 +56,13 @@ namespace Neb
         return t * Mul;
     }
 
+#if 0
     template<typename T> 
     int32_t Signum(T val) { return (T(0) < val) - (val < T(0)); }
+#else
+    // 16.06.24 Use bitwise integer sign calculation instead
+    template<std::integral T>
+    int32_t Signum(T val) { return (T(1) | (val >> sizeof(T) * CHAR_BIT - T(1))); }
+#endif
 
 } // Neb namespace
