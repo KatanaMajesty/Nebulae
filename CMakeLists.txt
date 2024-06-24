@@ -15,7 +15,10 @@ target_sources(DXRNebulae PRIVATE
     "src/core/Math.h"
     "src/core/Scene.cpp"
     "src/core/Scene.h"
+    "src/input/InputCallback.h"
     "src/input/InputManager.h"
+    "src/input/Keyboard.cpp"
+    "src/input/Keyboard.h"
     "src/input/Mouse.cpp"
     "src/input/Mouse.h"
     "src/nri/DepthStencilBuffer.cpp"
@@ -37,6 +40,8 @@ target_sources(DXRNebulae PRIVATE
     "src/nri/Swapchain.h"
     "src/Nebulae.cpp"
     "src/Nebulae.h"
+    "src/Raytracer.cpp"
+    "src/Raytracer.h"
     "src/Renderer.cpp"
     "src/Renderer.h"
     "src/Win.h"
@@ -50,6 +55,21 @@ target_sources(DXRNebulae PRIVATE
 
 target_sources(DXRNebulae PRIVATE
     "vendor/TinyGLTF/tiny_gltf.cc"
+)
+
+set(NV_DXRHELPER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/DXRHelper")
+target_sources(DXRNebulae PRIVATE
+    "${NV_DXRHELPER_DIR}/nv_helpers_dx12/BottomLevelASGenerator.cpp"
+    "${NV_DXRHELPER_DIR}/nv_helpers_dx12/BottomLevelASGenerator.h"
+    "${NV_DXRHELPER_DIR}/nv_helpers_dx12/RaytracingPipelineGenerator.cpp"
+    "${NV_DXRHELPER_DIR}/nv_helpers_dx12/RaytracingPipelineGenerator.h"
+    "${NV_DXRHELPER_DIR}/nv_helpers_dx12/RootSignatureGenerator.cpp"
+    "${NV_DXRHELPER_DIR}/nv_helpers_dx12/RootSignatureGenerator.h"
+    "${NV_DXRHELPER_DIR}/nv_helpers_dx12/ShaderBindingTableGenerator.cpp"
+    "${NV_DXRHELPER_DIR}/nv_helpers_dx12/ShaderBindingTableGenerator.h"
+    "${NV_DXRHELPER_DIR}/nv_helpers_dx12/TopLevelASGenerator.cpp"
+    "${NV_DXRHELPER_DIR}/nv_helpers_dx12/TopLevelASGenerator.h"
+    "${NV_DXRHELPER_DIR}/DXRHelper.h"
 )
 
 target_include_directories(DXRNebulae PRIVATE 

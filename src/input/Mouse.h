@@ -6,6 +6,7 @@
 #include <type_traits>
 #include <stdexcept>
 
+#include "InputCallback.h"
 #include "../common/Defines.h"
 
 namespace Neb
@@ -87,36 +88,6 @@ namespace Neb
         MouseCursorHotspot Hotspot;
     };
 
-    template<typename EventType>
-    struct MouseEventCallbackContainer
-    {
-        using CallbackType = std::function<void(const EventType&)>;
-
-        constexpr void Push(const CallbackType& callback) noexcept
-        {
-            Callbacks.push_back(callback);
-        }
-
-        // TODO: To support member function, this was the easiest user-friendly efficient way I came up with
-        // Maybe there are better approaches?
-        template<typename ConvertibleFunctor, typename... Args>
-        constexpr void Push(ConvertibleFunctor&& callback, Args&&... args) noexcept
-        { 
-            auto binding = [&callback, args...](const EventType& e) noexcept
-                {
-                    std::invoke(callback, args..., e);
-                };
-            Callbacks.push_back(binding);
-        }
-
-        constexpr void Clear() noexcept { Callbacks.clear(); }
-
-        constexpr auto begin() noexcept { return Callbacks.begin(); }
-        constexpr auto end() noexcept { return Callbacks.end(); }
-
-        std::vector<CallbackType> Callbacks;
-    };
-
     class Mouse
     {
     public:
@@ -137,26 +108,26 @@ namespace Neb
 
     private:
         template<typename EventType>
-        MouseEventCallbackContainer<EventType>& GetEventCallbackContainer();
+        InputEventCallbackContainer<EventType>& GetEventCallbackContainer();
 
         std::array<EMouseButtonStates, eMouseButton_NumButtons> m_buttonStates = {};
         MouseCursorHotspot m_cursorHotspot = {};
     
         // Remark: Adding any more callback containers will require tweaking GetEventCallbackContainer() method
-        MouseEventCallbackContainer<MouseEvent_Scrolled> m_mouseScrolledCallbacks;
-        MouseEventCallbackContainer<MouseEvent_CursorHotspotChanged> m_hotspotChangedCallbacks;
-        MouseEventCallbackContainer<MouseEvent_ButtonInteraction> m_buttonInteractionCallbacks;
+        InputEventCallbackContainer<MouseEvent_Scrolled> m_mouseScrolledCallbacks;
+        InputEventCallbackContainer<MouseEvent_CursorHotspotChanged> m_hotspotChangedCallbacks;
+        InputEventCallbackContainer<MouseEvent_ButtonInteraction> m_buttonInteractionCallbacks;
     };
 
     template<typename EventType, typename CallbackType, typename... Args>
     inline void Mouse::RegisterCallback(CallbackType&& callback, Args&&... args)
     {
-        MouseEventCallbackContainer<EventType>& callbackContainer = GetEventCallbackContainer<EventType>();
+        InputEventCallbackContainer<EventType>& callbackContainer = GetEventCallbackContainer<EventType>();
         callbackContainer.Push(std::forward<CallbackType>(callback), std::forward<Args>(args)...);
     }
 
     template<typename EventType>
-    inline MouseEventCallbackContainer<EventType>& Mouse::GetEventCallbackContainer()
+    inline InputEventCallbackContainer<EventType>& Mouse::GetEventCallbackContainer()
     {
         if constexpr (std::is_same_v<EventType, MouseEvent_Scrolled>)
             return m_mouseScrolledCallbacks;

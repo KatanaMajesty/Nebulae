@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Mouse.h"
+#include "Keyboard.h"
 
 namespace Neb
 {
@@ -22,9 +23,13 @@ namespace Neb
 
         Mouse& GetMouse() { return m_mouse; }
         const Mouse& GetMouse() const { return m_mouse; }
+    
+        Keyboard& GetKeyboard() { return m_keyboard; }
+        const Keyboard& GetKeyboard() const { return m_keyboard; }
 
     private:
         Mouse m_mouse;
+        Keyboard m_keyboard;
     };
 
 }

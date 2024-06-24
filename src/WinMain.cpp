@@ -44,6 +44,69 @@ std::filesystem::path GetModuleDirectory()
     return path.parent_path();
 }
 
+using KeyMappingContainer = std::unordered_map<WORD, Neb::EKeycode>;
+static KeyMappingContainer g_keyMapping;
+
+void InitInputMappings()
+{
+    using namespace Neb;
+    KeyMappingContainer& keyMapping = g_keyMapping;
+
+    // F1 - F12 (we do not support F13 - F24)
+    keyMapping[VK_F1] = eKeycode_F1;
+    keyMapping[VK_F2] = eKeycode_F2;
+    keyMapping[VK_F3] = eKeycode_F3;
+    keyMapping[VK_F4] = eKeycode_F4;
+    keyMapping[VK_F5] = eKeycode_F5;
+    keyMapping[VK_F6] = eKeycode_F6;
+    keyMapping[VK_F7] = eKeycode_F7;
+    keyMapping[VK_F8] = eKeycode_F8;
+    keyMapping[VK_F9] = eKeycode_F9;
+    keyMapping[VK_F10] = eKeycode_F10;
+    keyMapping[VK_F11] = eKeycode_F11;
+    keyMapping[VK_F12] = eKeycode_F12;
+
+    // Keyboard nums 1 - 9 and 0
+    keyMapping['0'] = eKeycode_0;
+    keyMapping['1'] = eKeycode_1;
+    keyMapping['2'] = eKeycode_2;
+    keyMapping['3'] = eKeycode_3;
+    keyMapping['4'] = eKeycode_4;
+    keyMapping['5'] = eKeycode_5;
+    keyMapping['6'] = eKeycode_6;
+    keyMapping['7'] = eKeycode_7;
+    keyMapping['8'] = eKeycode_8;
+    keyMapping['9'] = eKeycode_9;
+
+    // Keyboard chars 'A' - 'Z'
+    keyMapping['A'] = eKeycode_A;
+    keyMapping['B'] = eKeycode_B;
+    keyMapping['C'] = eKeycode_C;
+    keyMapping['D'] = eKeycode_D;
+    keyMapping['E'] = eKeycode_E;
+    keyMapping['F'] = eKeycode_F;
+    keyMapping['G'] = eKeycode_G;
+    keyMapping['H'] = eKeycode_H;
+    keyMapping['I'] = eKeycode_I;
+    keyMapping['J'] = eKeycode_J;
+    keyMapping['K'] = eKeycode_K;
+    keyMapping['L'] = eKeycode_L;
+    keyMapping['M'] = eKeycode_M;
+    keyMapping['N'] = eKeycode_N;
+    keyMapping['O'] = eKeycode_O;
+    keyMapping['P'] = eKeycode_P;
+    keyMapping['Q'] = eKeycode_Q;
+    keyMapping['R'] = eKeycode_R;
+    keyMapping['S'] = eKeycode_S;
+    keyMapping['T'] = eKeycode_T;
+    keyMapping['U'] = eKeycode_U;
+    keyMapping['V'] = eKeycode_V;
+    keyMapping['W'] = eKeycode_W;
+    keyMapping['X'] = eKeycode_X;
+    keyMapping['Y'] = eKeycode_Y;
+    keyMapping['Z'] = eKeycode_Z;
+}
+
 LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     Neb::Nebulae& nebulae = Neb::Nebulae::Get();
@@ -60,7 +123,28 @@ LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             nebulae.Resize(width, height);
         }
         break;
+
     // Input events for InputManager
+    case WM_SYSKEYDOWN:
+    case WM_SYSKEYUP:
+    case WM_KEYDOWN:
+    case WM_KEYUP: {
+        KeyMappingContainer& keyMapping = g_keyMapping;
+
+        WORD vkCode = LOWORD(wParam);
+        WORD keyFlags = HIWORD(lParam);
+        BOOL isUp = (keyFlags & KF_UP);
+
+        auto it = keyMapping.find(vkCode);
+        if (it == keyMapping.end())
+        {
+            break;
+        }
+
+        Neb::EKeycode keycode = it->second;
+        Neb::EKeycodeState nextState = isUp ? Neb::eKeycodeState_Released : Neb::eKeycodeState_Pressed;
+        Neb::InputManager::Get().GetKeyboard().SetKeycodeState(keycode, nextState);
+    };
     case WM_LBUTTONDBLCLK:
     case WM_LBUTTONDOWN:
     case WM_LBUTTONUP: {
@@ -162,6 +246,9 @@ INT WINAPI WinMain(
 
     ShowWindow(hwnd, nShowCmd);
 
+    // Initialize input-related contexts
+    InitInputMappings();
+
     Neb::Nebulae& nebulae = Neb::Nebulae::Get();
     Neb::nri::ThrowIfFalse(nebulae.Init(Neb::AppSpec{ .Handle = hwnd, .AssetsDirectory = AssetsDir }));
 
@@ -175,6 +262,10 @@ INT WINAPI WinMain(
         mouse.RegisterCallback<Neb::MouseEvent_Scrolled>(&Neb::Scene::OnMouseScroll, scene);
         mouse.RegisterCallback<Neb::MouseEvent_CursorHotspotChanged>(&Neb::Scene::OnMouseCursorMoved, scene);
         mouse.RegisterCallback<Neb::MouseEvent_ButtonInteraction>(&Neb::Scene::OnMouseButtonInteract, scene);
+    }
+    Neb::Keyboard& keyboard = Neb::InputManager::Get().GetKeyboard();
+    {
+        keyboard.RegisterCallback<Neb::KeyboardEvent_KeyInteraction>(&Neb::Nebulae::OnKeyInteraction, &nebulae);
     }
 
     MSG msg = {};

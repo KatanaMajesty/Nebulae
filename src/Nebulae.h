@@ -5,6 +5,9 @@
 #include "core/GLTFSceneImporter.h"
 #include "Renderer.h"
 
+// TODO: VERY TEMP, just to switch between raytracing and plain raster
+#include "input/InputManager.h"
+
 namespace Neb
 {
 
@@ -42,6 +45,8 @@ namespace Neb
         Renderer& GetRenderer() { return m_renderer; }
         const Renderer& GetRenderer() const { return m_renderer; }
 
+        void OnKeyInteraction(const KeyboardEvent_KeyInteraction& event);
+
     private:
         bool m_isInitialized = FALSE;
         AppSpec m_appSpec = {};
@@ -51,6 +56,8 @@ namespace Neb
 
         GLTFSceneImporter m_sceneImporter;
         Renderer m_renderer;
+
+        bool m_useRaytracing = false;
     };
 
 }

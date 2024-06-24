@@ -57,13 +57,27 @@ namespace Neb
         secondsSinceLastFps += timestep;
 
         Scene* scene = m_sceneImporter.ImportedScenes.front().get();
-        m_renderer.RenderScene(timestep, scene);
+
+        // Determine how to render
+        ( (m_useRaytracing) ? m_renderer.GetRaytracer().RenderScene(scene) : m_renderer.RenderScene(timestep, scene) );
     }
 
     void Nebulae::Resize(UINT width, UINT height)
     {
         NEB_ASSERT(IsInitialized());
         m_renderer.Resize(width, height);
+    }
+
+    void Nebulae::OnKeyInteraction(const KeyboardEvent_KeyInteraction& event)
+    {
+        if (event.NextState == eKeycodeState_Pressed)
+        {
+            if (event.Keycode == eKeycode_F)
+            {
+                // Swap between raytracing and raster
+                m_useRaytracing = !m_useRaytracing;
+            }
+        }
     }
 
 } // Neb namespace
