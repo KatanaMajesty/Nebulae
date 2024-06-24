@@ -42,8 +42,11 @@ namespace Neb
         
         // At the very end submit postprocessing work for static mesh
         // Postprocessing work may vary, but as of now it is just generating GPU buffer to store tangents
-        nri::ThrowIfFalse(SubmitPostprocessingD3D12Resources());
-        WaitD3D12ResourcesOnCopyQueue();
+        if (IsTangentPostprocessingNeeded())
+        {
+            nri::ThrowIfFalse(SubmitPostprocessingD3D12Resources());
+            WaitD3D12ResourcesOnCopyQueue();
+        }
 
         m_stagingBuffers.clear(); // cleanup staging buffers
         return !ImportedScenes.empty(); // If no scenes were imported then we failed apparently
@@ -266,6 +269,20 @@ namespace Neb
         return true;
     }
 
+    bool GLTFSceneImporter::IsTangentPostprocessingNeeded()
+    {
+        for (auto& scene : ImportedScenes)
+            for (nri::StaticMesh& mesh : scene->StaticMeshes)
+                for (nri::StaticSubmesh& submesh : mesh.Submeshes)
+                {
+                    const bool hasRawTangents = !submesh.Attributes[nri::eAttributeType_Tangents].empty();
+                    if (hasRawTangents && !submesh.AttributeBuffers[nri::eAttributeType_Tangents])
+                        return true;
+                }
+
+        return false;
+    }
+
     bool GLTFSceneImporter::SubmitPostprocessingD3D12Resources()
     {
         // The main goal if this method is to ensure that all of the post-processing work is submitted to the GPU
@@ -274,10 +291,6 @@ namespace Neb
         // And also we need to create buffer views for each submesh
         nri::Manager& nriManager = nri::Manager::Get();
         NEB_ASSERT(m_stagingCommandList); // Do no lazy initialize it here, just assume it is created
-
-        // Firstly try to early return if no postprocessing needed
-        if (!IsTangentPostprocessingNeeded())
-            return true;
 
         nri::ThrowIfFailed(m_stagingCommandList->Reset(nriManager.GetCommandAllocator(nri::eCommandContextType_Copy), nullptr));
         {
@@ -293,20 +306,6 @@ namespace Neb
         UINT64& copyFenceValue = nriManager.GetFenceValue(nri::eCommandContextType_Copy);
         nri::ThrowIfFailed(copyQueue->Signal(copyFence, ++copyFenceValue));
         return true;
-    }
-
-    bool GLTFSceneImporter::IsTangentPostprocessingNeeded()
-    {
-        for (auto& scene : ImportedScenes)
-            for (nri::StaticMesh& mesh : scene->StaticMeshes)
-                for (nri::StaticSubmesh& submesh : mesh.Submeshes)
-                {
-                    const bool hasRawTangents = !submesh.Attributes[nri::eAttributeType_Tangents].empty();
-                    if (hasRawTangents && !submesh.AttributeBuffers[nri::eAttributeType_Tangents])
-                        return true;
-                }
-
-        return false;
     }
 
     bool GLTFSceneImporter::SubmitTangentPostprocessingD3D12Buffer()

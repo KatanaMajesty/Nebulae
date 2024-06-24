@@ -39,8 +39,8 @@ namespace Neb
         bool SubmitD3D12Buffers();
         void WaitD3D12ResourcesOnCopyQueue();
 
-        bool SubmitPostprocessingD3D12Resources();
         bool IsTangentPostprocessingNeeded();
+        bool SubmitPostprocessingD3D12Resources();
         bool SubmitTangentPostprocessingD3D12Buffer();
 
         // Node processing
