@@ -36,6 +36,16 @@ namespace Neb::nri
         ThrowIfFailed(D3D12CreateDevice(m_dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(device.GetAddressOf())));
         ThrowIfFailed(device->QueryInterface(IID_PPV_ARGS(m_device.ReleaseAndGetAddressOf())));
 
+        // Query device capabilities and record them into manager's capabilities struct
+        m_capabilities = {};
+        m_capabilities.IsScreenTearingSupported = QueryDxgiFactoryTearingSupport();
+        m_capabilities.MeshShaderSupportTier = QueryDeviceMeshShaderSupportTier();
+        m_capabilities.RaytracingSupportTier = QueryDeviceRaytracingSupportTier();
+
+        // Do not care if no mesh shader or raytracing support available
+        ThrowIfFalse(m_capabilities.MeshShaderSupportTier != ESupportTier_MeshShader::NotSupported);
+        ThrowIfFalse(m_capabilities.RaytracingSupportTier != ESupportTier_Raytracing::NotSupported);
+
         // Fill out a command queue description, then create command queues, allocators and fences
         InitCommandContexts();
 
@@ -45,30 +55,30 @@ namespace Neb::nri
         InitResourceAllocator();
     }
 
-    BOOL Manager::IsDxgiAdapterMeshShaderSupported(D3D12Rc<ID3D12Device> device) const
-    {
-        // https://microsoft.github.io/DirectX-Specs/d3d/MeshShader.html#checkfeaturesupport
-        D3D12_FEATURE_DATA_D3D12_OPTIONS7 featureSupportData = {};
-        if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &featureSupportData, sizeof(featureSupportData))) ||
-            featureSupportData.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED)
-        {
-            return FALSE;
-        }
+    //BOOL Manager::IsDxgiAdapterMeshShaderSupported(D3D12Rc<ID3D12Device> device) const
+    //{
+    //    // https://microsoft.github.io/DirectX-Specs/d3d/MeshShader.html#checkfeaturesupport
+    //    D3D12_FEATURE_DATA_D3D12_OPTIONS7 featureSupportData = {};
+    //    if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &featureSupportData, sizeof(featureSupportData))) ||
+    //        featureSupportData.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED)
+    //    {
+    //        return FALSE;
+    //    }
 
-        return TRUE;
-    }
+    //    return TRUE;
+    //}
 
-    BOOL Manager::IsDxgiAdapterRaytracingSupported(D3D12Rc<ID3D12Device> device) const
-    {
-        D3D12_FEATURE_DATA_D3D12_OPTIONS5 featureSupportData = {};
-        if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &featureSupportData, sizeof(featureSupportData))) ||
-            featureSupportData.RaytracingTier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED)
-        {
-            return FALSE;
-        }
+    //BOOL Manager::IsDxgiAdapterRaytracingSupported(D3D12Rc<ID3D12Device> device) const
+    //{
+    //    D3D12_FEATURE_DATA_D3D12_OPTIONS5 featureSupportData = {};
+    //    if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &featureSupportData, sizeof(featureSupportData))) ||
+    //        featureSupportData.RaytracingTier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED)
+    //    {
+    //        return FALSE;
+    //    }
 
-        return TRUE;
-    }
+    //    return TRUE;
+    //}
 
     BOOL Manager::IsDxgiAdapterSuitable(IDXGIAdapter3* DxgiAdapter, const DXGI_ADAPTER_DESC1& desc) const
     {
@@ -80,9 +90,7 @@ namespace Neb::nri
 
         // Passing nullptr as a parameter would just test the adapter for compatibility
         D3D12Rc<ID3D12Device> device;
-        if (FAILED(D3D12CreateDevice(DxgiAdapter, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(device.GetAddressOf()))) ||
-            !IsDxgiAdapterRaytracingSupported(device) ||
-            !IsDxgiAdapterMeshShaderSupported(device))
+        if (FAILED(D3D12CreateDevice(DxgiAdapter, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(device.GetAddressOf()))))
         {
             return FALSE;
         }
@@ -114,6 +122,44 @@ namespace Neb::nri
         }
 
         return m_dxgiAdapter != NULL ? TRUE : FALSE;
+    }
+
+    BOOL Manager::QueryDxgiFactoryTearingSupport() const
+    {
+        BOOL allowTearing = FALSE;
+        ThrowIfFailed(m_dxgiFactory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing)));
+        return allowTearing;
+    }
+
+    ESupportTier_MeshShader Manager::QueryDeviceMeshShaderSupportTier() const
+    {
+        // https://microsoft.github.io/DirectX-Specs/d3d/MeshShader.html#checkfeaturesupport
+        D3D12_FEATURE_DATA_D3D12_OPTIONS7 featureSupportData = {};
+        if (FAILED(m_device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &featureSupportData, sizeof(featureSupportData))) ||
+            featureSupportData.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED)
+        {
+            return ESupportTier_MeshShader::NotSupported;
+        }
+
+        // TODO: As of now there is only 1 support tier of mesh shaders
+        return ESupportTier_MeshShader::SupportTier_1_0;
+    }
+
+    ESupportTier_Raytracing Manager::QueryDeviceRaytracingSupportTier() const
+    {
+        D3D12_FEATURE_DATA_D3D12_OPTIONS5 featureSupportData = {};
+        if (FAILED(m_device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &featureSupportData, sizeof(featureSupportData))) ||
+            featureSupportData.RaytracingTier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED)
+        {
+            return ESupportTier_Raytracing::NotSupported;
+        }
+
+        switch (featureSupportData.RaytracingTier)
+        {
+        case D3D12_RAYTRACING_TIER_1_0: return ESupportTier_Raytracing::SupportTier_1_0;
+        case D3D12_RAYTRACING_TIER_1_1: return ESupportTier_Raytracing::SupportTier_1_1;
+        default: return ESupportTier_Raytracing::NotSupported; // as of now only 2 support tiers are supported;
+        }
     }
 
     void Manager::InitCommandContexts()

@@ -18,7 +18,11 @@ namespace Neb::nri
         swapchainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         swapchainDesc.BufferCount = NumBackbuffers;
         swapchainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-        swapchainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+        swapchainDesc.Flags = 0;
+
+        // Recommended to always allow tearing if supported
+        if (nriManager.GetCapabilities().IsScreenTearingSupported)
+            swapchainDesc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
         D3D12Rc<IDXGISwapChain1> swapchain;
         ThrowIfFailed(nriManager.GetDxgiFactory()->CreateSwapChainForHwnd(
@@ -53,15 +57,18 @@ namespace Neb::nri
             return FALSE;
         }
 
+        nri::Manager& nriManager = nri::Manager::Get();
+
+        UINT flags = 0; // DXGI_SWAP_CHAIN_FLAG type
+        if (nriManager.GetCapabilities().IsScreenTearingSupported)
+            flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+
         DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN; // preserve the original format of the swapchain as for now
-        UINT flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // DXGI_SWAP_CHAIN_FLAG type
         if (FAILED(m_dxgiSwapchain->ResizeBuffers(NumBackbuffers, width, height, format, flags)))
         {
             NEB_ASSERT(false);
             return FALSE;
         }
-
-        nri::Manager& nriManager = nri::Manager::Get();
 
         // We assume that the client already issued a wait for graphics queue to finish executing all frames
         for (UINT i = 0; i < NumBackbuffers; ++i)
@@ -79,7 +86,7 @@ namespace Neb::nri
     {
         UINT syncInterval = vsync ? 1 : 0;
         UINT flags = 0;
-        if (syncInterval == 0)
+        if (syncInterval == 0 && nri::Manager::Get().GetCapabilities().IsScreenTearingSupported)
             flags |= DXGI_PRESENT_ALLOW_TEARING;
 
         nri::ThrowIfFailed(m_dxgiSwapchain->Present(syncInterval, flags));

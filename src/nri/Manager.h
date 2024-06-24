@@ -9,6 +9,26 @@
 namespace Neb::nri
 {
 
+    enum class ESupportTier_MeshShader : uint8_t
+    {
+        NotSupported = 0,
+        SupportTier_1_0 = 1,
+    };
+
+    enum class ESupportTier_Raytracing : uint8_t
+    {
+        NotSupported = 0,
+        SupportTier_1_0 = 1,
+        SupportTier_1_1 = 2
+    };
+
+    struct ManagerCapabilities
+    {
+        BOOL IsScreenTearingSupported = FALSE;
+        ESupportTier_MeshShader MeshShaderSupportTier = ESupportTier_MeshShader::NotSupported;
+        ESupportTier_Raytracing RaytracingSupportTier = ESupportTier_Raytracing::NotSupported;
+    };
+
     enum ECommandContextType
     {
         eCommandContextType_Graphics = 0,
@@ -36,6 +56,7 @@ namespace Neb::nri
 
         // General D3D12-related calls
         ID3D12Device4* GetDevice() { return m_device.Get(); }
+        const ManagerCapabilities& GetCapabilities() const { return m_capabilities; }
 
         // Command context related calls
         ID3D12CommandQueue* GetCommandQueue(ECommandContextType contextType) { return m_commandQueues[contextType].Get(); }
@@ -59,13 +80,16 @@ namespace Neb::nri
         D3D12Rc<IDXGIFactory6> m_dxgiFactory;
 
         // Most suitable adapter for device creation
-        BOOL IsDxgiAdapterMeshShaderSupported(D3D12Rc<ID3D12Device> device) const;
-        BOOL IsDxgiAdapterRaytracingSupported(D3D12Rc<ID3D12Device> device) const;
         BOOL IsDxgiAdapterSuitable(IDXGIAdapter3* dxgiAdapter, const DXGI_ADAPTER_DESC1& desc) const;
         BOOL QueryMostSuitableDeviceAdapter();
         D3D12Rc<IDXGIAdapter3> m_dxgiAdapter;
         D3D12Rc<ID3D12Device4> m_device;
 
+        ManagerCapabilities m_capabilities = {};
+        BOOL QueryDxgiFactoryTearingSupport() const;
+        ESupportTier_MeshShader QueryDeviceMeshShaderSupportTier() const;
+        ESupportTier_Raytracing QueryDeviceRaytracingSupportTier() const;
+    
         void InitCommandContexts();
         D3D12Rc<ID3D12CommandQueue> m_commandQueues[eCommandContextType_NumTypes];
         D3D12Rc<ID3D12CommandAllocator> m_commandAllocators[eCommandContextType_NumTypes];
