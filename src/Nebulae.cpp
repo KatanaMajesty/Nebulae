@@ -41,17 +41,17 @@ namespace Neb
         if (m_sceneImporter.ImportedScenes.empty())
             return;
 
-        int64_t elapsedSeconds = m_timeWatch.Elapsed();
-        int64_t timestepMillis = elapsedSeconds - m_lastFrameSeconds;
-        m_lastFrameSeconds = elapsedSeconds;
-        const float timestep = timestepMillis * 0.001f;
-        const float framerate = 1.0f / timestep;
+        int64_t elapsedMillis = m_timeWatch.Elapsed();
+        int64_t timestepMillis = elapsedMillis - m_lastFrameMillis;
+        m_lastFrameMillis = elapsedMillis;
+        float timestep = timestepMillis * 0.001f;
+        float framerate = 1.0f / timestep;
 
         static float secondsSinceLastFps = 0.0f;
         if (secondsSinceLastFps > 1.0f)
         {
             secondsSinceLastFps = 0.0f;
-            NEB_LOG_INFO("FPS is {}", framerate);
+            NEB_LOG_INFO("framerate is {}", framerate);
         }
 
         secondsSinceLastFps += timestep;
@@ -65,7 +65,5 @@ namespace Neb
         NEB_ASSERT(IsInitialized());
         m_renderer.Resize(width, height);
     }
-
-    
 
 } // Neb namespace

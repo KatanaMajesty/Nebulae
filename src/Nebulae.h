@@ -47,7 +47,7 @@ namespace Neb
         AppSpec m_appSpec = {};
 
         TimeWatch<dur::Milliseconds> m_timeWatch;
-        int64_t m_lastFrameSeconds = {};
+        int64_t m_lastFrameMillis = {};
 
         GLTFSceneImporter m_sceneImporter;
         Renderer m_renderer;
