@@ -35,12 +35,6 @@ namespace Neb
         return m_isInitialized;
     }
 
-    void Nebulae::Resize(UINT width, UINT height)
-    {
-        NEB_ASSERT(IsInitialized());
-        m_renderer.Resize(width, height);
-    }
-
     void Nebulae::Render()
     {
         NEB_ASSERT(IsInitialized());
@@ -51,9 +45,27 @@ namespace Neb
         int64_t timestepMillis = elapsedSeconds - m_lastFrameSeconds;
         m_lastFrameSeconds = elapsedSeconds;
         const float timestep = timestepMillis * 0.001f;
+        const float framerate = 1.0f / timestep;
+
+        static float secondsSinceLastFps = 0.0f;
+        if (secondsSinceLastFps > 1.0f)
+        {
+            secondsSinceLastFps = 0.0f;
+            NEB_LOG_INFO("FPS is {}", framerate);
+        }
+
+        secondsSinceLastFps += timestep;
 
         Scene* scene = m_sceneImporter.ImportedScenes.front().get();
         m_renderer.RenderScene(timestep, scene);
     }
+
+    void Nebulae::Resize(UINT width, UINT height)
+    {
+        NEB_ASSERT(IsInitialized());
+        m_renderer.Resize(width, height);
+    }
+
+    
 
 } // Neb namespace
