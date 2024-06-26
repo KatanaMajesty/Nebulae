@@ -105,6 +105,8 @@ void InitInputMappings()
     keyMapping['X'] = eKeycode_X;
     keyMapping['Y'] = eKeycode_Y;
     keyMapping['Z'] = eKeycode_Z;
+
+    keyMapping[VK_ESCAPE] = eKeycode_Esc;
 }
 
 LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -144,7 +146,7 @@ LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         Neb::EKeycode keycode = it->second;
         Neb::EKeycodeState nextState = isUp ? Neb::eKeycodeState_Released : Neb::eKeycodeState_Pressed;
         Neb::InputManager::Get().GetKeyboard().SetKeycodeState(keycode, nextState);
-    };
+    }; break;
     case WM_LBUTTONDBLCLK:
     case WM_LBUTTONDOWN:
     case WM_LBUTTONUP: {

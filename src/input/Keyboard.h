@@ -23,6 +23,7 @@ namespace Neb
         eKeycode_I, eKeycode_J, eKeycode_K, eKeycode_L, eKeycode_M, eKeycode_N, eKeycode_O, eKeycode_P,
         eKeycode_Q, eKeycode_R, eKeycode_S, eKeycode_T, eKeycode_U, eKeycode_V, eKeycode_W, eKeycode_X,
         eKeycode_Y, eKeycode_Z,
+        eKeycode_Esc,
         // Reserved to always be last
         eKeycode_NumKeycodes,
     };

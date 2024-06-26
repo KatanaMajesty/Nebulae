@@ -4,41 +4,31 @@
 
 namespace Neb
 {
-    
-    namespace dur
-    {
-        using Milliseconds = std::chrono::duration<int64_t, std::milli>;
-        using Seconds = std::chrono::duration<int64_t>;
-        using SecondsF32 = std::chrono::duration<float>;
-    } // dur namespace
+    using SecondsF32 = std::chrono::duration<float>;
 
-    template<typename Dur>
     class TimeWatch
     {
     public:
-        using DurationType = Dur;
         using ClockType = std::chrono::system_clock;
-        using Timestamp = std::chrono::time_point<ClockType>;
+        using DurationType = ClockType::duration;
+        using Timestamp = std::chrono::time_point<ClockType, DurationType>;
 
         static constexpr Timestamp InvalidTimestamp = Timestamp::min();
 
+        // Just a helper, exposed by API to allow for better timestamp management at external level
+        inline Timestamp Now() const noexcept { return ClockType::now(); }
+
         // Resets the watch, updating the begining timestamp
-        void Begin() noexcept 
-        { 
-            m_begin = ClockType::now(); 
-        }
+        inline void Begin() noexcept { m_begin = ClockType::now(); }
         
-        DurationType ElapsedDuration() noexcept
+        inline DurationType Elapsed() const noexcept
         {
             Timestamp instant = ClockType::now();
-            ClockType::duration elapsed = instant - m_begin;
-            return std::chrono::duration_cast<DurationType>(elapsed);
+            return instant - m_begin;
         }
 
-        DurationType::rep Elapsed() noexcept
-        {
-            return ElapsedDuration().count();
-        }
+        template<typename To>
+        To Elapsed() const noexcept { return std::chrono::duration_cast<To>(Elapsed()); }
 
     private:
         Timestamp m_begin = InvalidTimestamp;

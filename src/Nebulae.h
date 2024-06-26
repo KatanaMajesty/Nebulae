@@ -51,13 +51,11 @@ namespace Neb
         bool m_isInitialized = FALSE;
         AppSpec m_appSpec = {};
 
-        TimeWatch<dur::Milliseconds> m_timeWatch;
-        int64_t m_lastFrameMillis = {};
+        TimeWatch m_timeWatch;
+        SecondsF32 m_lastFrameSeconds = SecondsF32(0.0f);
 
         GLTFSceneImporter m_sceneImporter;
         Renderer m_renderer;
-
-        bool m_useRaytracing = false;
     };
 
 }

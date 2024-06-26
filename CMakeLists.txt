@@ -69,7 +69,6 @@ target_sources(DXRNebulae PRIVATE
     "${NV_DXRHELPER_DIR}/nv_helpers_dx12/ShaderBindingTableGenerator.h"
     "${NV_DXRHELPER_DIR}/nv_helpers_dx12/TopLevelASGenerator.cpp"
     "${NV_DXRHELPER_DIR}/nv_helpers_dx12/TopLevelASGenerator.h"
-    "${NV_DXRHELPER_DIR}/DXRHelper.h"
 )
 
 target_include_directories(DXRNebulae PRIVATE 

@@ -41,25 +41,22 @@ namespace Neb
         if (m_sceneImporter.ImportedScenes.empty())
             return;
 
-        int64_t elapsedMillis = m_timeWatch.Elapsed();
-        int64_t timestepMillis = elapsedMillis - m_lastFrameMillis;
-        m_lastFrameMillis = elapsedMillis;
-        float timestep = timestepMillis * 0.001f;
-        float framerate = 1.0f / timestep;
+        SecondsF32 elapsed = m_timeWatch.Elapsed<SecondsF32>();
+        const float timestep = (elapsed - m_lastFrameSeconds).count();
+        const float framerate = 1.0f / timestep;
+        m_lastFrameSeconds = elapsed;
 
         static float secondsSinceLastFps = 0.0f;
         if (secondsSinceLastFps > 1.0f)
         {
             secondsSinceLastFps = 0.0f;
-            NEB_LOG_INFO("framerate is {}", framerate);
+            NEB_LOG_INFO("Frametime is {:.1f}ms ({:.1f} fps)", timestep * 1000.0f, framerate);
         }
 
         secondsSinceLastFps += timestep;
 
         Scene* scene = m_sceneImporter.ImportedScenes.front().get();
-
-        // Determine how to render
-        ( (m_useRaytracing) ? m_renderer.GetRaytracer().RenderScene(scene) : m_renderer.RenderScene(timestep, scene) );
+        m_renderer.RenderScene(timestep, scene);
     }
 
     void Nebulae::Resize(UINT width, UINT height)
@@ -72,10 +69,9 @@ namespace Neb
     {
         if (event.NextState == eKeycodeState_Pressed)
         {
-            if (event.Keycode == eKeycode_F)
+            switch (event.Keycode)
             {
-                // Swap between raytracing and raster
-                m_useRaytracing = !m_useRaytracing;
+            case eKeycode_Esc: PostQuitMessage(0); break;
             }
         }
     }

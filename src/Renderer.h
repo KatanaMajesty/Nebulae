@@ -31,8 +31,6 @@ namespace Neb
         UINT GetWidth() const { return m_swapchain.GetWidth(); }
         UINT GetHeight() const { return m_swapchain.GetHeight(); }
 
-        Raytracer& GetRaytracer() { return m_raytracer; }
-        
     private:
         void WaitForFrameToFinish();
 
@@ -55,8 +53,6 @@ namespace Neb
         CbInstanceInfo* m_cbInstanceInfoBufferMapping = nullptr;
         nri::D3D12Rc<ID3D12Resource> m_cbInstanceInfoBuffer;
         nri::DescriptorAllocation m_cbInstanceInfoDescriptor;
-
-        Raytracer m_raytracer;
     };
 
 }
