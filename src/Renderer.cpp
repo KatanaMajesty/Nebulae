@@ -2,6 +2,7 @@
 
 #include "common/Defines.h"
 #include "common/Log.h"
+#include "nri/Device.h"
 
 // TODO: Remove this when shader library is implemented. 
 // Currently needed to initialize root signature. Shaders are needed for that and we need assets directory
@@ -27,6 +28,13 @@ namespace Neb
             return FALSE;
         }
 
+        // Init fence
+        nri::ThrowIfFailed(nri::NRIDevice::Get().GetDevice()->CreateFence(
+            m_fenceValues[m_frameIndex],
+            D3D12_FENCE_FLAG_NONE, 
+            IID_PPV_ARGS(m_fence.GetAddressOf())
+        ));
+
         InitCommandList();
         InitRootSignatureAndShaders();
         InitPipelineState();
@@ -36,18 +44,53 @@ namespace Neb
 
     void Renderer::RenderScene(float timestep, Scene* scene)
     {
-        NEB_ASSERT(m_commandList && scene);
-        nri::Manager& nriManager = nri::Manager::Get();
+        // Move to the next frame;
+        UINT frameIndex = NextFrame();
 
-        ID3D12CommandAllocator* commandAllocator = nriManager.GetCommandAllocator(nri::eCommandContextType_Graphics);
-        nri::ThrowIfFailed(commandAllocator->Reset());
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
+        nri::D3D12Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
 
         // Reset with nullptr as initial state, not to be bothered
-        nri::ThrowIfFailed(m_commandList->Reset(commandAllocator, nullptr));
+        nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
+        {
+            PopulateCommandLists(timestep, scene);
+        }
+        nri::ThrowIfFailed(m_commandList->Close());
+
+        ID3D12CommandList* pCommandLists[] = { m_commandList.Get() };
+        ID3D12CommandQueue* queue = device.GetCommandQueue(nri::eCommandContextType_Graphics);
+        queue->ExecuteCommandLists(_countof(pCommandLists), pCommandLists);
+        queue->Signal(m_fence.Get(), m_fenceValues[frameIndex]);
+
+        m_swapchain.Present(FALSE);
+
+        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[frameIndex]);
+    }
+
+    void Renderer::Resize(UINT width, UINT height)
+    {
+        // avoid reallocating everything for no reason
+        if (width == m_swapchain.GetWidth() && height == m_swapchain.GetHeight())
+            return;
+
+        // Before resizing swapchain wait for all frames to finish rendering
+        WaitForAllFrames();
+
+        // Handle the return result better
+        m_swapchain.Resize(width, height);
+        m_depthStencilBuffer.Resize(width, height);
+    }
+
+    void Renderer::PopulateCommandLists(float timestep, Scene* scene)
+    {
+        NEB_ASSERT(m_commandList && scene);
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+
         {
             std::array shaderVisibleHeaps = {
-                nriManager.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).GetHeap(),
-                nriManager.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER).GetHeap(),
+                device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).GetHeap(),
+                device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER).GetHeap(),
             };
             m_commandList->SetDescriptorHeaps(static_cast<UINT>(shaderVisibleHeaps.size()), shaderVisibleHeaps.data());
 
@@ -132,60 +175,52 @@ namespace Neb
             };
             m_commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
         }
-        nri::ThrowIfFailed(m_commandList->Close());
-
-        ID3D12CommandList* pCommandLists[] = { m_commandList.Get() };
-        ID3D12CommandQueue* queue = nriManager.GetCommandQueue(nri::eCommandContextType_Graphics);
-        queue->ExecuteCommandLists(_countof(pCommandLists), pCommandLists);
-
-        m_swapchain.Present(FALSE);
-
-        ID3D12Fence* fence = nriManager.GetFence(nri::eCommandContextType_Graphics);
-        UINT64& fenceValue = nriManager.GetFenceValue(nri::eCommandContextType_Graphics);
-        nri::ThrowIfFailed(queue->Signal(fence, ++fenceValue));
-
-        // At the very end, when we are done - wait asset processing for completion
-        WaitForFrameToFinish();
     }
 
-    void Renderer::Resize(UINT width, UINT height)
+    UINT Renderer::NextFrame()
     {
-        // avoid reallocating everything for no reason
-        if (width == m_swapchain.GetWidth() && height == m_swapchain.GetHeight())
-            return;
-
-        // Before resizing swapchain wait for all frames to finish rendering
-        WaitForFrameToFinish();
-
-        // Handle the return result better
-        m_swapchain.Resize(width, height);
-        m_depthStencilBuffer.Resize(width, height);
-    }
-
-    void Renderer::WaitForFrameToFinish()
-    {
-        nri::Manager& nriManager = nri::Manager::Get();
-
-        ID3D12Fence* fence = nriManager.GetFence(nri::eCommandContextType_Graphics);
-        UINT64& fenceValue = nriManager.GetFenceValue(nri::eCommandContextType_Graphics);
-
-        if (fence->GetCompletedValue() < fenceValue)
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        
+        UINT64 currentFenceValue = m_fenceValues[m_frameIndex];
+        m_frameIndex = m_swapchain.GetCurrentBackbufferIndex();
+        
+        UINT64& nextFenceValue = m_fenceValues[m_frameIndex];
+        if (m_fence->GetCompletedValue() < nextFenceValue)
         {
             HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
             NEB_ASSERT(fenceEvent);
 
             // Wait until the fence is completed.
-            nri::ThrowIfFailed(fence->SetEventOnCompletion(fenceValue, fenceEvent));
+            nri::ThrowIfFailed(m_fence->SetEventOnCompletion(nextFenceValue, fenceEvent));
+            WaitForSingleObject(fenceEvent, INFINITE);
+        }
+
+        nextFenceValue = currentFenceValue + 1;
+        return m_frameIndex;
+    }
+
+    void Renderer::WaitForAllFrames()
+    {
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+
+        UINT64 fenceValue = m_fenceValues[m_frameIndex];
+        if (m_fence->GetCompletedValue() < fenceValue)
+        {
+            HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
+            NEB_ASSERT(fenceEvent);
+
+            // Wait until the fence is completed.
+            nri::ThrowIfFailed(m_fence->SetEventOnCompletion(fenceValue, fenceEvent));
             WaitForSingleObject(fenceEvent, INFINITE);
         }
     }
 
     void Renderer::InitCommandList()
     {
-        nri::Manager& nriManager = nri::Manager::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
 
         // Command related stuff
-        nri::ThrowIfFailed(nriManager.GetDevice()->CreateCommandList1(0,
+        nri::ThrowIfFailed(device.GetDevice()->CreateCommandList1(0,
             D3D12_COMMAND_LIST_TYPE_DIRECT,
             D3D12_COMMAND_LIST_FLAG_NONE,
             IID_PPV_ARGS(m_commandList.ReleaseAndGetAddressOf())
@@ -234,11 +269,11 @@ namespace Neb
         };
 
         // Neeeded to create root signature
-        nri::Manager& nriManager = nri::Manager::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
 
         nri::D3D12Rc<ID3D10Blob> blob, errorBlob;
         nri::ThrowIfFailed(D3D12SerializeVersionedRootSignature(&rootSignatureDesc, blob.GetAddressOf(), errorBlob.GetAddressOf()));
-        nri::ThrowIfFailed(nriManager.GetDevice()->CreateRootSignature(0,
+        nri::ThrowIfFailed(device.GetDevice()->CreateRootSignature(0,
             blob->GetBufferPointer(),
             blob->GetBufferSize(),
             IID_PPV_ARGS(m_rootSignature.ReleaseAndGetAddressOf())
@@ -247,7 +282,7 @@ namespace Neb
 
     void Renderer::InitPipelineState()
     {
-        nri::Manager& nriManager = nri::Manager::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature = m_rootSignature.Get();
@@ -269,24 +304,24 @@ namespace Neb
         psoDesc.SampleDesc = { 1, 0 };
         psoDesc.NodeMask = 0;
         psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
-        nri::ThrowIfFailed(nriManager.GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(m_pipelineState.ReleaseAndGetAddressOf())));
+        nri::ThrowIfFailed(device.GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(m_pipelineState.ReleaseAndGetAddressOf())));
     }
 
     void Renderer::InitInstanceInfoCb()
     {
-        nri::Manager& nriManager = nri::Manager::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
 
         D3D12_RESOURCE_DESC cbInstanceInfoResourceDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{
             .SizeInBytes = sizeof(CbInstanceInfo),
             .Alignment = 0
             });
-        D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
+        D3D12MA::Allocator* allocator = device.GetResourceAllocator();
         D3D12MA::ALLOCATION_DESC cbInstanceInfoAllocDesc = {
             .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
             .HeapType = D3D12_HEAP_TYPE_UPLOAD, // It alright to use upload heap for small-sized resources (i guess?)
         };
         nri::D3D12Rc<D3D12MA::Allocation> allocation;
-        nri::ThrowIfFailed(nriManager.GetResourceAllocator()->CreateResource(
+        nri::ThrowIfFailed(device.GetResourceAllocator()->CreateResource(
             &cbInstanceInfoAllocDesc,
             &cbInstanceInfoResourceDesc,
             D3D12_RESOURCE_STATE_GENERIC_READ,
@@ -304,8 +339,8 @@ namespace Neb
             .BufferLocation = m_cbInstanceInfoBuffer->GetGPUVirtualAddress(),
             .SizeInBytes = sizeof(CbInstanceInfo)
         };
-        m_cbInstanceInfoDescriptor = nriManager.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptor();
-        nriManager.GetDevice()->CreateConstantBufferView(&cbInstanceInfoDesc, m_cbInstanceInfoDescriptor.DescriptorHandle);
+        m_cbInstanceInfoDescriptor = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptor();
+        device.GetDevice()->CreateConstantBufferView(&cbInstanceInfoDesc, m_cbInstanceInfoDescriptor.DescriptorHandle);
     }
 
 } // Neb namespace

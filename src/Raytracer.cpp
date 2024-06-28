@@ -2,7 +2,7 @@
 
 #include "common/Defines.h"
 #include "common/Log.h"
-#include "nri/Manager.h"
+#include "nri/Device.h"
 
 namespace Neb
 {
@@ -12,7 +12,7 @@ namespace Neb
         NEB_ASSERT(context.Swapchain && context.DepthStencilBuffer);
         m_context = context;
 
-        nri::Manager& device = nri::Manager::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
         if (device.GetCapabilities().RaytracingSupportTier == nri::ESupportTier_Raytracing::NotSupported)
         {
             NEB_LOG_ERROR("Ray tracing is not supported on this device!");
@@ -29,7 +29,7 @@ namespace Neb
 
     void Raytracer::InitCommandList()
     {
-        nri::Manager& device = nri::Manager::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
 
         //device.GetDevice()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, )
     }

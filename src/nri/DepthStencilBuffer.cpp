@@ -1,19 +1,19 @@
 #include "DepthStencilBuffer.h"
 
 #include "../common/Defines.h"
-#include "Manager.h"
+#include "Device.h"
 
 namespace Neb::nri
 {
 
     BOOL DepthStencilBuffer::Init(UINT width, UINT height)
     {
-        Manager& nriManager = Manager::Get();
+        NRIDevice& device = NRIDevice::Get();
         
         m_desc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R24G8_TYPELESS, width, height, 1, 1);
         m_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
         m_desc.Flags |= D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
-        m_depthStencilView = nriManager.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_DSV).AllocateDescriptor();
+        m_depthStencilView = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_DSV).AllocateDescriptor();
         AllocateAll();
         return TRUE;
     }
@@ -38,8 +38,8 @@ namespace Neb::nri
 
     void DepthStencilBuffer::AllocateAll()
     {
-        Manager& nriManager = Manager::Get();
-        D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
+        NRIDevice& device = NRIDevice::Get();
+        D3D12MA::Allocator* allocator = device.GetResourceAllocator();
         D3D12MA::ALLOCATION_DESC allocDesc = D3D12MA::ALLOCATION_DESC{
             .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
             .HeapType = D3D12_HEAP_TYPE_DEFAULT,
@@ -60,7 +60,7 @@ namespace Neb::nri
             .Flags = D3D12_DSV_FLAG_NONE,
             .Texture2D = D3D12_TEX2D_DSV{.MipSlice = 0 }
         };
-        nriManager.GetDevice()->CreateDepthStencilView(m_bufferAllocation->GetResource(), &dsvDesc, m_depthStencilView.DescriptorHandle);
+        device.GetDevice()->CreateDepthStencilView(m_bufferAllocation->GetResource(), &dsvDesc, m_depthStencilView.DescriptorHandle);
     }
 
 }

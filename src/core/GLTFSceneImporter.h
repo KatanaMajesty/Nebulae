@@ -7,8 +7,8 @@
 
 #include "Scene.h"
 #include "../nri/stdafx.h"
-#include "../nri/Manager.h"
 #include "../nri/DescriptorAllocation.h"
+#include "../nri/CommandAllocatorPool.h"
 
 namespace Neb
 {
@@ -19,7 +19,7 @@ namespace Neb
     class GLTFSceneImporter
     {
     public:
-        GLTFSceneImporter() = default;
+        GLTFSceneImporter();
 
         bool ImportScenesFromFile(const std::filesystem::path& filepath);
         void Clear();
@@ -56,7 +56,12 @@ namespace Neb
         std::vector<nri::D3D12Rc<ID3D12Resource>> m_GLTFTextures;
         std::vector<nri::D3D12Rc<ID3D12Resource>> m_GLTFBuffers;
         std::vector<nri::D3D12Rc<ID3D12Resource>> m_stagingBuffers; // upload resources that are currently being used
+
+        // TODO: I am not sure how to handle this best, but I think using own command allocators and fences here
+        // would make it more sustainable + we could handle renderer waiting on assets better on outer layer in Nebulae easier
         nri::D3D12Rc<ID3D12GraphicsCommandList> m_stagingCommandList;
+        nri::D3D12Rc<ID3D12Fence> m_copyFence;
+        UINT64 m_copyFenceValue = 0;
     };
 
 }

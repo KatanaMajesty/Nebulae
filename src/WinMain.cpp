@@ -3,6 +3,7 @@
 #include "core/Math.h"
 #include "common/Log.h"
 #include "input/InputManager.h"
+#include "nri/Device.h"
 #include "Nebulae.h"
 
 #include "Win.h"
@@ -223,8 +224,8 @@ INT WINAPI WinMain(
     // This code will be moved to Nebulae soon
     static const std::filesystem::path AssetsDir = GetModuleDirectory().parent_path().parent_path().parent_path() / "assets";
 
-    Neb::nri::Manager& nriManager = Neb::nri::Manager::Get();
-    nriManager.Init();
+    Neb::nri::NRIDevice& device = Neb::nri::NRIDevice::Get();
+    device.Init();
 
     HWND hwnd = CreateWindowEx(
         0,                              // Optional window styles.

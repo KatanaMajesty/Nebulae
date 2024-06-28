@@ -4,6 +4,7 @@
 #include <D3D12MA/D3D12MemAlloc.h>
 #include <memory>
 
+#include "CommandAllocatorPool.h"
 #include "DescriptorHeap.h"
 
 namespace Neb::nri
@@ -22,7 +23,7 @@ namespace Neb::nri
         SupportTier_1_1 = 2
     };
 
-    struct ManagerCapabilities
+    struct NRIDeviceCapabilities
     {
         BOOL IsScreenTearingSupported = FALSE;
         ESupportTier_MeshShader MeshShaderSupportTier = ESupportTier_MeshShader::NotSupported;
@@ -37,16 +38,16 @@ namespace Neb::nri
         eCommandContextType_NumTypes,
     };
 
-    class Manager
+    class NRIDevice
     {
     private:
-        Manager() = default;
+        NRIDevice() = default;
 
     public:
-        Manager(const Manager&) = delete;
-        Manager& operator=(const Manager&) = delete;
+        NRIDevice(const NRIDevice&) = delete;
+        NRIDevice& operator=(const NRIDevice&) = delete;
 
-        static Manager& Get();
+        static NRIDevice& Get();
     
         // Main member-function. Initializes the entire manager (device)
         void Init();
@@ -56,14 +57,11 @@ namespace Neb::nri
 
         // General D3D12-related calls
         ID3D12Device4* GetDevice() { return m_device.Get(); }
-        const ManagerCapabilities& GetCapabilities() const { return m_capabilities; }
+        const NRIDeviceCapabilities& GetCapabilities() const { return m_capabilities; }
 
         // Command context related calls
         ID3D12CommandQueue* GetCommandQueue(ECommandContextType contextType) { return m_commandQueues[contextType].Get(); }
-        ID3D12CommandAllocator* GetCommandAllocator(ECommandContextType contextType) { return m_commandAllocators[contextType].Get(); }
-        ID3D12Fence* GetFence(ECommandContextType contextType) { return m_fences[contextType].Get(); }
-        UINT64& GetFenceValue(ECommandContextType contextType) { return m_fenceValues[contextType]; }
-        const UINT64& GetFenceValue(ECommandContextType contextType) const { return m_fenceValues[contextType]; }
+        CommandAllocatorPool& GetCommandAllocatorPool(ECommandContextType contextType) { return m_commandAllocatorPools[contextType]; }
 
         DescriptorHeap& GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE type) { return m_descriptorHeaps[type]; }
         const DescriptorHeap& GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE type) const { return m_descriptorHeaps[type]; }
@@ -85,16 +83,14 @@ namespace Neb::nri
         D3D12Rc<IDXGIAdapter3> m_dxgiAdapter;
         D3D12Rc<ID3D12Device4> m_device;
 
-        ManagerCapabilities m_capabilities = {};
+        NRIDeviceCapabilities m_capabilities = {};
         BOOL QueryDxgiFactoryTearingSupport() const;
         ESupportTier_MeshShader QueryDeviceMeshShaderSupportTier() const;
         ESupportTier_Raytracing QueryDeviceRaytracingSupportTier() const;
     
         void InitCommandContexts();
         D3D12Rc<ID3D12CommandQueue> m_commandQueues[eCommandContextType_NumTypes];
-        D3D12Rc<ID3D12CommandAllocator> m_commandAllocators[eCommandContextType_NumTypes];
-        D3D12Rc<ID3D12Fence> m_fences[eCommandContextType_NumTypes];
-        UINT64 m_fenceValues[eCommandContextType_NumTypes];
+        CommandAllocatorPool m_commandAllocatorPools[eCommandContextType_NumTypes];
 
         void InitDescriptorHeaps();
         DescriptorHeap m_descriptorHeaps[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES];

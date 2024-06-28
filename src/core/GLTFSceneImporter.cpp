@@ -3,9 +3,20 @@
 #include <array>
 #include "../common/Defines.h"
 #include "../common/Log.h"
+#include "../nri/Device.h"
 
 namespace Neb
 {
+
+    GLTFSceneImporter::GLTFSceneImporter()
+    {
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        nri::ThrowIfFailed(device.GetDevice()->CreateFence(
+            m_copyFenceValue, 
+            D3D12_FENCE_FLAG_NONE, 
+            IID_PPV_ARGS(m_copyFence.GetAddressOf())
+        ));
+    }
 
     bool GLTFSceneImporter::ImportScenesFromFile(const std::filesystem::path& filepath)
     {
@@ -79,12 +90,12 @@ namespace Neb
 
     bool GLTFSceneImporter::SubmitD3D12Resources()
     {
-        nri::Manager& nriManager = nri::Manager::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
 
         // Check if staging command list is created. If not - lazy initialize it
         if (!m_stagingCommandList)
         {
-            nri::ThrowIfFailed(nriManager.GetDevice()->CreateCommandList1(0,
+            nri::ThrowIfFailed(device.GetDevice()->CreateCommandList1(0,
                 D3D12_COMMAND_LIST_TYPE_COPY, 
                 D3D12_COMMAND_LIST_FLAG_NONE, 
                 IID_PPV_ARGS(m_stagingCommandList.GetAddressOf())
@@ -92,7 +103,9 @@ namespace Neb
         }
         
         NEB_ASSERT(m_stagingCommandList);
-        nri::ThrowIfFailed(m_stagingCommandList->Reset(nriManager.GetCommandAllocator(nri::eCommandContextType_Copy), nullptr));
+        nri::CommandAllocatorPool& allocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Copy);
+        nri::D3D12Rc<ID3D12CommandAllocator> allocator = allocatorPool.QueryAllocator();
+        nri::ThrowIfFailed(m_stagingCommandList->Reset(allocator.Get(), nullptr));
         {
             nri::ThrowIfFalse(SubmitD3D12Images());
             nri::ThrowIfFalse(SubmitD3D12Buffers());
@@ -100,18 +113,17 @@ namespace Neb
         nri::ThrowIfFailed(m_stagingCommandList->Close());
 
         ID3D12CommandList* pCommandLists[] = { m_stagingCommandList.Get() };
-        ID3D12CommandQueue* copyQueue = nriManager.GetCommandQueue(nri::eCommandContextType_Copy);
+        ID3D12CommandQueue* copyQueue = device.GetCommandQueue(nri::eCommandContextType_Copy);
         copyQueue->ExecuteCommandLists(_countof(pCommandLists), pCommandLists);
 
-        ID3D12Fence* copyFence = nriManager.GetFence(nri::eCommandContextType_Copy);
-        UINT64& copyFenceValue = nriManager.GetFenceValue(nri::eCommandContextType_Copy);
-        nri::ThrowIfFailed(copyQueue->Signal(copyFence, ++copyFenceValue));
+        nri::ThrowIfFailed(copyQueue->Signal(m_copyFence.Get(), ++m_copyFenceValue));
+        allocatorPool.DiscardAllocator(allocator, m_copyFence.Get(), m_copyFenceValue);
         return true;
     }
 
     bool GLTFSceneImporter::SubmitD3D12Images()
     {
-        nri::Manager& nriManager = nri::Manager::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
 
         const size_t numImages = m_GLTFModel.images.size();
         m_GLTFTextures.clear();
@@ -133,7 +145,7 @@ namespace Neb
             // Destination resource
             {
                 D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, src.width, src.height, 1, 1);
-                D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
+                D3D12MA::Allocator* allocator = device.GetResourceAllocator();
                 D3D12MA::ALLOCATION_DESC allocDesc = {
                     .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
                     .HeapType = D3D12_HEAP_TYPE_DEFAULT,
@@ -149,7 +161,7 @@ namespace Neb
                 );
 
                 UINT numSubresources = resourceDesc.MipLevels * resourceDesc.DepthOrArraySize;
-                nriManager.GetDevice()->GetCopyableFootprints(
+                device.GetDevice()->GetCopyableFootprints(
                     &resourceDesc,
                     0, numSubresources,
                     0,
@@ -162,7 +174,7 @@ namespace Neb
             nri::D3D12Rc<ID3D12Resource> uploadBuffer;
             {
                 D3D12_RESOURCE_DESC uploadDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{ .SizeInBytes = numTotalBytes, .Alignment = 0 });
-                D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
+                D3D12MA::Allocator* allocator = device.GetResourceAllocator();
                 D3D12MA::ALLOCATION_DESC allocDesc = {
                     .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
                     .HeapType = D3D12_HEAP_TYPE_UPLOAD,
@@ -204,7 +216,7 @@ namespace Neb
 
     bool GLTFSceneImporter::SubmitD3D12Buffers()
     {
-        nri::Manager& nriManager = nri::Manager::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
      
         const size_t numBuffers = m_GLTFModel.buffers.size();
         m_GLTFBuffers.clear();
@@ -220,7 +232,7 @@ namespace Neb
             // destination
             {
                 D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{ .SizeInBytes = numBytes, .Alignment = 0 });
-                D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
+                D3D12MA::Allocator* allocator = device.GetResourceAllocator();
                 D3D12MA::ALLOCATION_DESC allocDesc = {
                     .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
                     .HeapType = D3D12_HEAP_TYPE_DEFAULT,
@@ -242,7 +254,7 @@ namespace Neb
             nri::D3D12Rc<ID3D12Resource> uploadBuffer;
             {
                 D3D12_RESOURCE_DESC uploadDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{ .SizeInBytes = numBytes, .Alignment = 0 });
-                D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
+                D3D12MA::Allocator* allocator = device.GetResourceAllocator();
                 D3D12MA::ALLOCATION_DESC allocDesc = {
                     .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
                     .HeapType = D3D12_HEAP_TYPE_UPLOAD,
@@ -289,22 +301,23 @@ namespace Neb
         //
         // Initial idea here was to handle manually calculated tangents, as we need to submit them into buffers as well
         // And also we need to create buffer views for each submesh
-        nri::Manager& nriManager = nri::Manager::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
         NEB_ASSERT(m_stagingCommandList); // Do no lazy initialize it here, just assume it is created
 
-        nri::ThrowIfFailed(m_stagingCommandList->Reset(nriManager.GetCommandAllocator(nri::eCommandContextType_Copy), nullptr));
+        nri::CommandAllocatorPool& allocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Copy);
+        nri::D3D12Rc<ID3D12CommandAllocator> allocator = allocatorPool.QueryAllocator();
+        nri::ThrowIfFailed(m_stagingCommandList->Reset(allocator.Get(), nullptr));
         {
             nri::ThrowIfFalse(SubmitTangentPostprocessingD3D12Buffer());
         }
         nri::ThrowIfFailed(m_stagingCommandList->Close());
 
         ID3D12CommandList* pCommandLists[] = { m_stagingCommandList.Get() };
-        ID3D12CommandQueue* copyQueue = nriManager.GetCommandQueue(nri::eCommandContextType_Copy);
+        ID3D12CommandQueue* copyQueue = device.GetCommandQueue(nri::eCommandContextType_Copy);
         copyQueue->ExecuteCommandLists(_countof(pCommandLists), pCommandLists);
 
-        ID3D12Fence* copyFence = nriManager.GetFence(nri::eCommandContextType_Copy);
-        UINT64& copyFenceValue = nriManager.GetFenceValue(nri::eCommandContextType_Copy);
-        nri::ThrowIfFailed(copyQueue->Signal(copyFence, ++copyFenceValue));
+        nri::ThrowIfFailed(copyQueue->Signal(m_copyFence.Get(), ++m_copyFenceValue));
+        allocatorPool.DiscardAllocator(allocator, m_copyFence.Get(), m_copyFenceValue);
         return true;
     }
 
@@ -325,7 +338,7 @@ namespace Neb
                 }
     
         NEB_ASSERT(numTotalVertices > 0);
-        nri::Manager& nriManager = nri::Manager::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
 
         size_t numTotalBytes = TangentStride * numTotalVertices;
         nri::D3D12Rc<ID3D12Resource> tangentBuffer = m_GLTFBuffers.emplace_back();
@@ -334,7 +347,7 @@ namespace Neb
                 .SizeInBytes = numTotalBytes, 
                 .Alignment = 0 
             });
-            D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
+            D3D12MA::Allocator* allocator = device.GetResourceAllocator();
             D3D12MA::ALLOCATION_DESC allocDesc = {
                 .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
                 .HeapType = D3D12_HEAP_TYPE_DEFAULT,
@@ -356,7 +369,7 @@ namespace Neb
                 .SizeInBytes = numTotalBytes, 
                 .Alignment = 0 
             });
-            D3D12MA::Allocator* allocator = nriManager.GetResourceAllocator();
+            D3D12MA::Allocator* allocator = device.GetResourceAllocator();
             D3D12MA::ALLOCATION_DESC allocDesc = {
                 .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
                 .HeapType = D3D12_HEAP_TYPE_UPLOAD,
@@ -405,19 +418,16 @@ namespace Neb
 
     void GLTFSceneImporter::WaitD3D12ResourcesOnCopyQueue()
     {
-        nri::Manager& nriManager = nri::Manager::Get();
-
-        ID3D12Fence* copyFence = nriManager.GetFence(nri::eCommandContextType_Copy);
-        UINT64& copyFenceValue = nriManager.GetFenceValue(nri::eCommandContextType_Copy);
+        nri::NRIDevice& device = nri::NRIDevice::Get();
 
         // At the very end, when we are done - wait asset processing for completion
-        if (copyFence->GetCompletedValue() < copyFenceValue)
+        if (m_copyFence->GetCompletedValue() < m_copyFenceValue)
         {
             // Wait until the fence is completed.
             HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
             NEB_ASSERT(fenceEvent != NULL);
 
-            nri::ThrowIfFailed(copyFence->SetEventOnCompletion(copyFenceValue, fenceEvent));
+            nri::ThrowIfFailed(m_copyFence->SetEventOnCompletion(m_copyFenceValue, fenceEvent));
             WaitForSingleObject(fenceEvent, INFINITE);
         }
     }
@@ -682,8 +692,8 @@ namespace Neb
                 if (!material.Textures[nri::eMaterialTextureType_RoughnessMetalness])
                     material.RoughnessMetalnessFactor = Neb::Vec2(pbrMaterial.roughnessFactor, pbrMaterial.metallicFactor);
 
-                nri::Manager& nriManager = nri::Manager::Get();
-                nri::DescriptorHeap& descriptorHeap = nriManager.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                nri::NRIDevice& device = nri::NRIDevice::Get();
+                nri::DescriptorHeap& descriptorHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
                 material.SrvRange = descriptorHeap.AllocateDescriptorRange(nri::eMaterialTextureType_NumTypes);
                 for (UINT i = 0; i < nri::eMaterialTextureType_NumTypes; ++i)
@@ -722,8 +732,8 @@ namespace Neb
         D3D12_CPU_DESCRIPTOR_HANDLE handle = range.GetCPUHandle(type);
         // https://microsoft.github.io/DirectX-Specs/d3d/ResourceBinding.html#null-descriptors
         // passing NULL for the resource pointer in the descriptor definition achieves the effect of an “unbound” resource.
-        nri::Manager& nriManager = nri::Manager::Get();
-        nriManager.GetDevice()->CreateShaderResourceView(resource, (resource) ? nullptr : &NullDescriptorSrvDesc, handle);
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        device.GetDevice()->CreateShaderResourceView(resource, (resource) ? nullptr : &NullDescriptorSrvDesc, handle);
     }
 
 } // Neb namespace

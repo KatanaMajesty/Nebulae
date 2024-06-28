@@ -3,7 +3,6 @@
 #include "core/Scene.h"
 
 #include "nri/DepthStencilBuffer.h"
-#include "nri/Manager.h"
 #include "nri/Shader.h"
 #include "nri/ShaderCompiler.h"
 #include "nri/Swapchain.h"
@@ -23,6 +22,8 @@ namespace Neb
     class Renderer
     {
     public:
+        static constexpr UINT NumInflightFrames = nri::Swapchain::NumBackbuffers;
+
         BOOL Init(HWND hwnd);
         
         void RenderScene(float timestep, Scene* scene);
@@ -32,11 +33,19 @@ namespace Neb
         UINT GetHeight() const { return m_swapchain.GetHeight(); }
 
     private:
-        void WaitForFrameToFinish();
+        void PopulateCommandLists(float timestep, Scene* scene);
+    
+        // Synchronizes with in-flight, waits if needed
+        // returns  frame index of the next frame (as a swapchain's backbuffer index)
+        UINT NextFrame();
+        void WaitForAllFrames();
 
         nri::ShaderCompiler m_shaderCompiler;
         nri::Swapchain m_swapchain;
         nri::DepthStencilBuffer m_depthStencilBuffer;
+        nri::D3D12Rc<ID3D12Fence> m_fence;
+        UINT m_frameIndex = 0;
+        UINT64 m_fenceValues[NumInflightFrames];
 
         void InitCommandList();
         nri::D3D12Rc<ID3D12GraphicsCommandList> m_commandList;

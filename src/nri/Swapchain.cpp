@@ -1,13 +1,14 @@
 #include "Swapchain.h"
 
 #include "../common/Defines.h"
+#include "Device.h"
 
 namespace Neb::nri
 {
 
     BOOL Swapchain::Init(HWND hwnd)
     {
-        nri::Manager& nriManager = nri::Manager::Get();
+        NRIDevice& device = NRIDevice::Get();
 
         DXGI_SWAP_CHAIN_DESC1 swapchainDesc = {};
         swapchainDesc.Width = 0;
@@ -21,12 +22,12 @@ namespace Neb::nri
         swapchainDesc.Flags = 0;
 
         // Recommended to always allow tearing if supported
-        if (nriManager.GetCapabilities().IsScreenTearingSupported)
+        if (device.GetCapabilities().IsScreenTearingSupported)
             swapchainDesc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
         D3D12Rc<IDXGISwapChain1> swapchain;
-        ThrowIfFailed(nriManager.GetDxgiFactory()->CreateSwapChainForHwnd(
-            nriManager.GetCommandQueue(eCommandContextType_Graphics),
+        ThrowIfFailed(device.GetDxgiFactory()->CreateSwapChainForHwnd(
+            device.GetCommandQueue(eCommandContextType_Graphics),
             hwnd,
             &swapchainDesc,
             NULL,   // Set it to NULL to create a windowed swap chain.
@@ -40,8 +41,8 @@ namespace Neb::nri
         for (UINT i = 0; i < NumBackbuffers; ++i)
         {
             ThrowIfFailed(m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].ReleaseAndGetAddressOf())));
-            m_renderTargetViews[i] = nriManager.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV).AllocateDescriptor();
-            nriManager.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
+            m_renderTargetViews[i] = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV).AllocateDescriptor();
+            device.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
         }
 
         // Get description of swapchain to easily obtain dimensions
@@ -57,10 +58,10 @@ namespace Neb::nri
             return FALSE;
         }
 
-        nri::Manager& nriManager = nri::Manager::Get();
+        NRIDevice& device = NRIDevice::Get();
 
         UINT flags = 0; // DXGI_SWAP_CHAIN_FLAG type
-        if (nriManager.GetCapabilities().IsScreenTearingSupported)
+        if (device.GetCapabilities().IsScreenTearingSupported)
             flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
         DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN; // preserve the original format of the swapchain as for now
@@ -74,7 +75,7 @@ namespace Neb::nri
         for (UINT i = 0; i < NumBackbuffers; ++i)
         {
             ThrowIfFailed( m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].GetAddressOf())) );
-            nriManager.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
+            device.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
         }
 
         // Get description of swapchain to easily obtain dimensions
@@ -86,7 +87,7 @@ namespace Neb::nri
     {
         UINT syncInterval = vsync ? 1 : 0;
         UINT flags = 0;
-        if (syncInterval == 0 && nri::Manager::Get().GetCapabilities().IsScreenTearingSupported)
+        if (syncInterval == 0 && NRIDevice::Get().GetCapabilities().IsScreenTearingSupported)
             flags |= DXGI_PRESENT_ALLOW_TEARING;
 
         nri::ThrowIfFailed(m_dxgiSwapchain->Present(syncInterval, flags));

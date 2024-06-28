@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include "stdafx.h"
-#include "Manager.h"
 #include "DescriptorAllocation.h"
 #include "DescriptorHeap.h"
 
@@ -13,7 +12,8 @@ namespace Neb::nri
     {
     public:
         static constexpr UINT MaxBackbuffers = DXGI_MAX_SWAP_CHAIN_BUFFERS;
-        static constexpr UINT NumBackbuffers = std::min(3u, MaxBackbuffers);
+        static constexpr UINT NumBackbuffers = 3;
+        static_assert(NumBackbuffers <= MaxBackbuffers && "This amount of backbuffers is not supported");
 
         Swapchain() = default;
 

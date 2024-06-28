@@ -1,22 +1,22 @@
-#include "Manager.h"
+#include "Device.h"
 
 // Chill here for getting started -> https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component
 
 namespace Neb::nri
 {
-    Manager& Manager::Get()
+    NRIDevice& NRIDevice::Get()
     {
-        static Manager instance;
+        static NRIDevice instance;
         return instance;
     }
 
-    void Manager::Init()
+    void NRIDevice::Init()
     {
         InitPipeline();
     }
 
     // https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component#loadpipeline
-    void Manager::InitPipeline()
+    void NRIDevice::InitPipeline()
     {
         // Enable the debug layer
         ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(m_debugInterface.ReleaseAndGetAddressOf())));
@@ -55,7 +55,7 @@ namespace Neb::nri
         InitResourceAllocator();
     }
 
-    //BOOL Manager::IsDxgiAdapterMeshShaderSupported(D3D12Rc<ID3D12Device> device) const
+    //BOOL NRIDevice::IsDxgiAdapterMeshShaderSupported(D3D12Rc<ID3D12Device> device) const
     //{
     //    // https://microsoft.github.io/DirectX-Specs/d3d/MeshShader.html#checkfeaturesupport
     //    D3D12_FEATURE_DATA_D3D12_OPTIONS7 featureSupportData = {};
@@ -68,7 +68,7 @@ namespace Neb::nri
     //    return TRUE;
     //}
 
-    //BOOL Manager::IsDxgiAdapterRaytracingSupported(D3D12Rc<ID3D12Device> device) const
+    //BOOL NRIDevice::IsDxgiAdapterRaytracingSupported(D3D12Rc<ID3D12Device> device) const
     //{
     //    D3D12_FEATURE_DATA_D3D12_OPTIONS5 featureSupportData = {};
     //    if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &featureSupportData, sizeof(featureSupportData))) ||
@@ -80,7 +80,7 @@ namespace Neb::nri
     //    return TRUE;
     //}
 
-    BOOL Manager::IsDxgiAdapterSuitable(IDXGIAdapter3* DxgiAdapter, const DXGI_ADAPTER_DESC1& desc) const
+    BOOL NRIDevice::IsDxgiAdapterSuitable(IDXGIAdapter3* DxgiAdapter, const DXGI_ADAPTER_DESC1& desc) const
     {
         // Don't select render driver, provided by D3D12. We only use physical hardware
         if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
@@ -98,7 +98,7 @@ namespace Neb::nri
         return TRUE;
     }
 
-    BOOL Manager::QueryMostSuitableDeviceAdapter()
+    BOOL NRIDevice::QueryMostSuitableDeviceAdapter()
     {
         UINT64 maxVideoMemory = 0;
         IDXGIAdapter3* adapter;
@@ -124,14 +124,14 @@ namespace Neb::nri
         return m_dxgiAdapter != NULL ? TRUE : FALSE;
     }
 
-    BOOL Manager::QueryDxgiFactoryTearingSupport() const
+    BOOL NRIDevice::QueryDxgiFactoryTearingSupport() const
     {
         BOOL allowTearing = FALSE;
         ThrowIfFailed(m_dxgiFactory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing)));
         return allowTearing;
     }
 
-    ESupportTier_MeshShader Manager::QueryDeviceMeshShaderSupportTier() const
+    ESupportTier_MeshShader NRIDevice::QueryDeviceMeshShaderSupportTier() const
     {
         // https://microsoft.github.io/DirectX-Specs/d3d/MeshShader.html#checkfeaturesupport
         D3D12_FEATURE_DATA_D3D12_OPTIONS7 featureSupportData = {};
@@ -145,7 +145,7 @@ namespace Neb::nri
         return ESupportTier_MeshShader::SupportTier_1_0;
     }
 
-    ESupportTier_Raytracing Manager::QueryDeviceRaytracingSupportTier() const
+    ESupportTier_Raytracing NRIDevice::QueryDeviceRaytracingSupportTier() const
     {
         D3D12_FEATURE_DATA_D3D12_OPTIONS5 featureSupportData = {};
         if (FAILED(m_device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &featureSupportData, sizeof(featureSupportData))) ||
@@ -162,41 +162,30 @@ namespace Neb::nri
         }
     }
 
-    void Manager::InitCommandContexts()
+    void NRIDevice::InitCommandContexts()
     {
-        D3D12_COMMAND_QUEUE_DESC graphicsQueueDesc = {};
-        graphicsQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-        graphicsQueueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-        graphicsQueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-        graphicsQueueDesc.NodeMask = 0;
-        ThrowIfFailed(m_device->CreateCommandQueue(&graphicsQueueDesc, IID_PPV_ARGS(m_commandQueues[eCommandContextType_Graphics].ReleaseAndGetAddressOf())));
+        static constexpr std::array D3D12TypeMap = {
+            D3D12_COMMAND_LIST_TYPE_DIRECT,     // eCommandContextType_Graphics
+            D3D12_COMMAND_LIST_TYPE_COPY,       // eCommandContextType_Copy
+            D3D12_COMMAND_LIST_TYPE_COMPUTE,    // eCommandContextType_Compute
+        };
 
-        D3D12_COMMAND_QUEUE_DESC copyQueueDesc = {};
-        copyQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_COPY;
-        copyQueueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-        copyQueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-        copyQueueDesc.NodeMask = 0;
-        ThrowIfFailed(m_device->CreateCommandQueue(&copyQueueDesc, IID_PPV_ARGS(m_commandQueues[eCommandContextType_Copy].ReleaseAndGetAddressOf())));
+        for (size_t i = 0; i < D3D12TypeMap.size(); ++i)
+        {
+            const D3D12_COMMAND_LIST_TYPE type = D3D12TypeMap[i];
 
-        D3D12_COMMAND_QUEUE_DESC computeQueueDesc = {};
-        computeQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
-        computeQueueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-        computeQueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-        computeQueueDesc.NodeMask = 0;
-        ThrowIfFailed(m_device->CreateCommandQueue(&computeQueueDesc, IID_PPV_ARGS(m_commandQueues[eCommandContextType_Compute].ReleaseAndGetAddressOf())));
+            D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+            queueDesc.Type = type;
+            queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+            queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+            queueDesc.NodeMask = 0;
+            ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(m_commandQueues[i].ReleaseAndGetAddressOf())));
 
-        // Create command allocators for each type
-        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(m_commandAllocators[eCommandContextType_Graphics].ReleaseAndGetAddressOf())));
-        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(m_commandAllocators[eCommandContextType_Copy].ReleaseAndGetAddressOf())));
-        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE, IID_PPV_ARGS(m_commandAllocators[eCommandContextType_Compute].ReleaseAndGetAddressOf())));
-
-        std::memset(m_fenceValues, 0, sizeof(m_fenceValues));
-        ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fences[eCommandContextType_Graphics].ReleaseAndGetAddressOf())));
-        ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fences[eCommandContextType_Copy].ReleaseAndGetAddressOf())));
-        ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fences[eCommandContextType_Compute].ReleaseAndGetAddressOf())));
+            m_commandAllocatorPools[i] = CommandAllocatorPool(m_device.Get(), type);
+        };
     }
 
-    void Manager::InitDescriptorHeaps()
+    void NRIDevice::InitDescriptorHeaps()
     {
         static constexpr UINT NumDescriptors[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES] =
         {
@@ -221,7 +210,7 @@ namespace Neb::nri
         }
     }
 
-    void Manager::InitResourceAllocator()
+    void NRIDevice::InitResourceAllocator()
     {
         D3D12MA::ALLOCATOR_DESC desc = {};
         desc.Flags = D3D12MA::ALLOCATOR_FLAG_MSAA_TEXTURES_ALWAYS_COMMITTED;

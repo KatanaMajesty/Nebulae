@@ -2,6 +2,7 @@
 
 #include "common/Defines.h"
 #include "common/Log.h"
+#include "nri/Device.h"
 
 namespace Neb
 {
@@ -18,7 +19,7 @@ namespace Neb
 
         // Firstly initialize rendering interface manager
         // it is now singleton, annoying to manage it all the time
-        nri::Manager& nriManager = nri::Manager::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
 
         if (!m_renderer.Init(appSpec.Handle))
         {
