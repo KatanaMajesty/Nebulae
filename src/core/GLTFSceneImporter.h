@@ -12,7 +12,7 @@
 
 namespace Neb
 {
-    
+
     // Quickstart with glTF https://www.khronos.org/files/gltf20-reference-guide.pdf
     // Afterwards we chill here - https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html
 
@@ -26,7 +26,7 @@ namespace Neb
 
         // Maybe make them private? Dont really care now
         std::vector<std::unique_ptr<Scene>> ImportedScenes;
-    
+
     private:
         // return false if failed to import scene. In such case, the entire scene will be discarded and
         // some warning will be logged
@@ -46,7 +46,7 @@ namespace Neb
         // Node processing
         bool ImportGLTFNode(Scene* scene, tinygltf::Scene& src, int32_t nodeID);
         bool ImportStaticMesh(nri::StaticMesh& mesh, tinygltf::Mesh& src);
-        
+
         nri::D3D12Rc<ID3D12Resource> GetTextureFromGLTFScene(int32_t index);
         void InitMaterialTextureDescriptor(ID3D12Resource* resource, nri::EMaterialTextureType type, const nri::DescriptorRange& range);
 

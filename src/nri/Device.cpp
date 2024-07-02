@@ -55,31 +55,6 @@ namespace Neb::nri
         InitResourceAllocator();
     }
 
-    //BOOL NRIDevice::IsDxgiAdapterMeshShaderSupported(D3D12Rc<ID3D12Device> device) const
-    //{
-    //    // https://microsoft.github.io/DirectX-Specs/d3d/MeshShader.html#checkfeaturesupport
-    //    D3D12_FEATURE_DATA_D3D12_OPTIONS7 featureSupportData = {};
-    //    if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &featureSupportData, sizeof(featureSupportData))) ||
-    //        featureSupportData.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED)
-    //    {
-    //        return FALSE;
-    //    }
-
-    //    return TRUE;
-    //}
-
-    //BOOL NRIDevice::IsDxgiAdapterRaytracingSupported(D3D12Rc<ID3D12Device> device) const
-    //{
-    //    D3D12_FEATURE_DATA_D3D12_OPTIONS5 featureSupportData = {};
-    //    if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &featureSupportData, sizeof(featureSupportData))) ||
-    //        featureSupportData.RaytracingTier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED)
-    //    {
-    //        return FALSE;
-    //    }
-
-    //    return TRUE;
-    //}
-
     BOOL NRIDevice::IsDxgiAdapterSuitable(IDXGIAdapter3* DxgiAdapter, const DXGI_ADAPTER_DESC1& desc) const
     {
         // Don't select render driver, provided by D3D12. We only use physical hardware
@@ -103,8 +78,8 @@ namespace Neb::nri
         UINT64 maxVideoMemory = 0;
         IDXGIAdapter3* adapter;
         for (UINT i = 0;
-            m_dxgiFactory->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)) != DXGI_ERROR_NOT_FOUND;
-            ++i)
+             m_dxgiFactory->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)) != DXGI_ERROR_NOT_FOUND;
+             ++i)
         {
             DXGI_ADAPTER_DESC1 adapterDesc;
             adapter->GetDesc1(&adapterDesc);
@@ -165,9 +140,9 @@ namespace Neb::nri
     void NRIDevice::InitCommandContexts()
     {
         static constexpr std::array D3D12TypeMap = {
-            D3D12_COMMAND_LIST_TYPE_DIRECT,     // eCommandContextType_Graphics
-            D3D12_COMMAND_LIST_TYPE_COPY,       // eCommandContextType_Copy
-            D3D12_COMMAND_LIST_TYPE_COMPUTE,    // eCommandContextType_Compute
+            D3D12_COMMAND_LIST_TYPE_DIRECT,  // eCommandContextType_Graphics
+            D3D12_COMMAND_LIST_TYPE_COPY,    // eCommandContextType_Copy
+            D3D12_COMMAND_LIST_TYPE_COMPUTE, // eCommandContextType_Compute
         };
 
         for (size_t i = 0; i < D3D12TypeMap.size(); ++i)
@@ -187,16 +162,14 @@ namespace Neb::nri
 
     void NRIDevice::InitDescriptorHeaps()
     {
-        static constexpr UINT NumDescriptors[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES] =
-        {
+        static constexpr UINT NumDescriptors[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES] = {
             4096, // D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV
             256,  // D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
             2048, // D3D12_DESCRIPTOR_HEAP_TYPE_RTV
             256,  // D3D12_DESCRIPTOR_HEAP_TYPE_DSV
         };
 
-        static constexpr D3D12_DESCRIPTOR_HEAP_FLAGS Flags[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES] =
-        {
+        static constexpr D3D12_DESCRIPTOR_HEAP_FLAGS Flags[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES] = {
             D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, // D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV
             D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, // D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
             D3D12_DESCRIPTOR_HEAP_FLAG_NONE,           // D3D12_DESCRIPTOR_HEAP_TYPE_RTV
@@ -214,7 +187,8 @@ namespace Neb::nri
     {
         D3D12MA::ALLOCATOR_DESC desc = {};
         desc.Flags = D3D12MA::ALLOCATOR_FLAG_MSAA_TEXTURES_ALWAYS_COMMITTED;
-        desc.pDevice = m_device.Get();;
+        desc.pDevice = m_device.Get();
+        ;
         desc.PreferredBlockSize = 0;
         desc.pAllocationCallbacks = nullptr;
         desc.pAdapter = m_dxgiAdapter.Get();

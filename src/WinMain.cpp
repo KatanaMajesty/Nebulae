@@ -7,7 +7,7 @@
 #include "Nebulae.h"
 
 #include "Win.h"
-#include <windowsx.h> // For GET_X_LPARAM/GET_Y_LPARAM 
+#include <windowsx.h> // For GET_X_LPARAM/GET_Y_LPARAM
 
 struct WIN32Console
 {
@@ -131,7 +131,8 @@ LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_SYSKEYDOWN:
     case WM_SYSKEYUP:
     case WM_KEYDOWN:
-    case WM_KEYUP: {
+    case WM_KEYUP:
+    {
         KeyMappingContainer& keyMapping = g_keyMapping;
 
         WORD vkCode = LOWORD(wParam);
@@ -147,10 +148,12 @@ LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         Neb::EKeycode keycode = it->second;
         Neb::EKeycodeState nextState = isUp ? Neb::eKeycodeState_Released : Neb::eKeycodeState_Pressed;
         Neb::InputManager::Get().GetKeyboard().SetKeycodeState(keycode, nextState);
-    }; break;
+    };
+    break;
     case WM_LBUTTONDBLCLK:
     case WM_LBUTTONDOWN:
-    case WM_LBUTTONUP: {
+    case WM_LBUTTONUP:
+    {
         WORD flags = LOWORD(wParam);
         Neb::EMouseButton button = Neb::eMouseButton_Left;
         Neb::EMouseButtonStates states = (flags & MK_LBUTTON) ? Neb::eMouseButtonState_ClickedOnce : Neb::eMouseButtonState_Released;
@@ -158,10 +161,12 @@ LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             states = Neb::eMouseButtonState_ClickedTwice;
 
         Neb::InputManager::Get().GetMouse().SetMouseButtonStates(button, states);
-    }; break;
+    };
+    break;
     case WM_RBUTTONDOWN:
     case WM_RBUTTONUP:
-    case WM_RBUTTONDBLCLK: {
+    case WM_RBUTTONDBLCLK:
+    {
         WORD flags = LOWORD(wParam);
         Neb::EMouseButton button = Neb::eMouseButton_Right;
         Neb::EMouseButtonStates states = (flags & MK_RBUTTON) ? Neb::eMouseButtonState_ClickedOnce : Neb::eMouseButtonState_Released;
@@ -169,10 +174,12 @@ LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             states = Neb::eMouseButtonState_ClickedTwice;
 
         Neb::InputManager::Get().GetMouse().SetMouseButtonStates(button, states);
-    }; break;
+    };
+    break;
     case WM_MBUTTONDOWN:
     case WM_MBUTTONUP:
-    case WM_MBUTTONDBLCLK: {
+    case WM_MBUTTONDBLCLK:
+    {
         WORD flags = LOWORD(wParam);
         Neb::EMouseButton button = Neb::eMouseButton_Middle;
         Neb::EMouseButtonStates states = (flags & MK_MBUTTON) ? Neb::eMouseButtonState_ClickedOnce : Neb::eMouseButtonState_Released;
@@ -182,35 +189,38 @@ LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
 
         Neb::InputManager::Get().GetMouse().SetMouseButtonStates(button, states);
-    }; break;
+    };
+    break;
     case WM_MOUSEWHEEL:
     {
         SHORT delta = GET_WHEEL_DELTA_WPARAM(wParam);
         int32_t val = Neb::Signum(delta);
 
         Neb::InputManager::Get().GetMouse().NotifyWheelScroll(val);
-    }; break;
+    };
+    break;
     case WM_MOUSEMOVE:
     {
         INT x = GET_X_LPARAM(lParam);
         INT y = GET_Y_LPARAM(lParam);
 
         Neb::InputManager::Get().GetMouse().SetCursorHotspot(Neb::MouseCursorHotspot{ .X = x, .Y = y });
-    }; break;
+    };
+    break;
     }
 
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
 INT WINAPI WinMain(
-    _In_     HINSTANCE hInstance, 
-    _In_opt_ HINSTANCE hPrevInstance, 
-    _In_     LPSTR lpCmdLine, 
-    _In_     INT nShowCmd)
+    _In_ HINSTANCE hInstance,
+    _In_opt_ HINSTANCE hPrevInstance,
+    _In_ LPSTR lpCmdLine,
+    _In_ INT nShowCmd)
 {
     WIN32Console console;
 
-    constexpr const char* lpClassName  = "DXRNebulae";
+    constexpr const char* lpClassName = "DXRNebulae";
     constexpr const char* lpWindowName = "DirectX Raytracing Nebulae";
 
     WNDCLASS wndClass = {};
@@ -228,18 +238,18 @@ INT WINAPI WinMain(
     device.Init();
 
     HWND hwnd = CreateWindowEx(
-        0,                              // Optional window styles.
-        lpClassName,                    // Window class
-        lpWindowName,                   // Window text
-        WS_OVERLAPPEDWINDOW,            // Window style
+        0,                   // Optional window styles.
+        lpClassName,         // Window class
+        lpWindowName,        // Window text
+        WS_OVERLAPPEDWINDOW, // Window style
 
         // Size and position
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
 
-        NULL,       // Parent window    
-        NULL,       // Menu
-        hInstance,  // Instance handle
-        NULL        // Additional application data
+        NULL,      // Parent window
+        NULL,      // Menu
+        hInstance, // Instance handle
+        NULL       // Additional application data
     );
 
     if (hwnd == NULL)

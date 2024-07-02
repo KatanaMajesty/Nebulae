@@ -48,7 +48,7 @@ namespace Neb::nri
         NRIDevice& operator=(const NRIDevice&) = delete;
 
         static NRIDevice& Get();
-    
+
         // Main member-function. Initializes the entire manager (device)
         void Init();
 
@@ -87,7 +87,7 @@ namespace Neb::nri
         BOOL QueryDxgiFactoryTearingSupport() const;
         ESupportTier_MeshShader QueryDeviceMeshShaderSupportTier() const;
         ESupportTier_Raytracing QueryDeviceRaytracingSupportTier() const;
-    
+
         void InitCommandContexts();
         D3D12Rc<ID3D12CommandQueue> m_commandQueues[eCommandContextType_NumTypes];
         CommandAllocatorPool m_commandAllocatorPools[eCommandContextType_NumTypes];

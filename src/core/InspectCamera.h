@@ -50,7 +50,7 @@ namespace Neb
         Mat4 m_view = Mat4(); // View matrix
         Vec3 m_origin = Vec3(0.0f);
         Vec2 m_rotationXy = Vec2(0.0f); // we only rotate across X and Y, and dont play with Z
-        float m_distance = 2.0f; // distance is same for each axis
+        float m_distance = 2.0f;        // distance is same for each axis
         float m_fov = 60.0f;
     };
 

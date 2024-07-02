@@ -20,7 +20,7 @@ namespace Neb
 
         // Resets the watch, updating the begining timestamp
         inline void Begin() noexcept { m_begin = ClockType::now(); }
-        
+
         inline DurationType Elapsed() const noexcept
         {
             Timestamp instant = ClockType::now();

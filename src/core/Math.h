@@ -4,12 +4,12 @@
 #include <concepts>
 
 #ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers.
+#define WIN32_LEAN_AND_MEAN // Exclude rarely-used stuff from Windows headers.
 #endif
 
 #ifndef NOMINMAX
 #define NOMINMAX
-#endif					// Exclude rarely-used stuff from Windows headers.
+#endif // Exclude rarely-used stuff from Windows headers.
 
 #include <d3d12.h> // Include before SimpleMath to have interop between D3D12 and the library
 #include "DirectXTK12/Include/SimpleMath.h"
@@ -20,12 +20,12 @@ namespace Neb
     // Insane wrapper of https://github.com/microsoft/DirectXTK/wiki/SimpleMath
     // SimpleMath wastes a bit of runtime performance compared to raw DirectXMath, so be aware
     //
-    // SimpleMath as with DirectXMath uses row-major ordering for matrices. 
+    // SimpleMath as with DirectXMath uses row-major ordering for matrices.
     // This means that elements are stored in memory in the following order: _11, _12, _13, _14, _21, _22, etc.
     //
-    // With the built-in Effects this is done internally, but if writing your own shaders and managing your own constant buffers, 
-    // you will need to ensure you pass in your matrix data in the correct order for your HLSL shader settings. 
-    // This means sticking with the HLSL default by transposing your matrices as you update the constant buffer, 
+    // With the built-in Effects this is done internally, but if writing your own shaders and managing your own constant buffers,
+    // you will need to ensure you pass in your matrix data in the correct order for your HLSL shader settings.
+    // This means sticking with the HLSL default by transposing your matrices as you update the constant buffer,
     // using #pragma pack_matrix(row_major) in your HLSL shader source, or compiling your shaders with /Zpr.
     //
     // As of now Nebulae uses /Zpr flag, but will probably deprecate that in favor of faster column-major order
@@ -51,7 +51,8 @@ namespace Neb
     using BoundingFrustum = DirectX::BoundingFrustum;
 
     template<typename T>
-    inline T ToRadians(T t) {
+    inline T ToRadians(T t)
+    {
         static constexpr float Mul = std::numbers::pi_v<float> / 180.0f;
         return t * Mul;
     }

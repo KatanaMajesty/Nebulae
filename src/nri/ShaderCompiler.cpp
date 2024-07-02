@@ -1,9 +1,11 @@
 #include "ShaderCompiler.h"
 
+#include "../common/Assert.h"
+#include "../common/Log.h"
+
 #include <fstream>
 #include <filesystem>
 #include <array>
-#include "../common/Log.h"
 
 namespace Neb::nri
 {
@@ -47,7 +49,8 @@ namespace Neb::nri
             case EShaderType::Compute: return L"cs_6_5";
             default: ThrowIfFalse(false); return L"";
             };
-        }; break;
+        };
+        break;
         default: ThrowIfFalse(false); return L"";
         };
     }
@@ -59,21 +62,20 @@ namespace Neb::nri
         const std::vector<DxcDefine>& defines, EShaderCompilationFlags flags)
     {
         // https://strontic.github.io/xcyclopedia/library/dxc.exe-0C1709D4E1787E3EB3E6A35C85714824.html
-        static constexpr std::array dxcDefault =
-        {
-    #ifdef NEB_DEBUG
-                L"-Od", // no optimization
-    #else
-                L"-O3", // max optimization
-    #endif
-                L"-Zi", // enable debug information
-                L"-WX", // treat warnings as errors
-                L"-Zpr", // enforce row-major ordering
+        static constexpr std::array dxcDefault = {
+#ifdef NEB_DEBUG
+            L"-Od", // no optimization
+#else
+            L"-O3", // max optimization
+#endif
+            L"-Zi",  // enable debug information
+            L"-WX",  // treat warnings as errors
+            L"-Zpr", // enforce row-major ordering
 
-                // Use the /all_resources_bound compile flag if possible
-                // This allows for the compiler to do a better job at optimizing texture accesses. 
-                // We have seen frame rate improvements of > 1% when toggling this flag on.
-                L"-all_resources_bound", // Enables agressive flattening
+            // Use the /all_resources_bound compile flag if possible
+            // This allows for the compiler to do a better job at optimizing texture accesses.
+            // We have seen frame rate improvements of > 1% when toggling this flag on.
+            L"-all_resources_bound", // Enables agressive flattening
         };
 
         // Such a cool wstr -> str convertion hack lol
@@ -84,7 +86,7 @@ namespace Neb::nri
         if (flags & eShaderCompilationFlag_StripDebug)
         {
             std::filesystem::path resolvedPath = std::filesystem::path(filepath);
-            NEB_ASSERT(resolvedPath.has_parent_path());
+            NEB_ASSERT(resolvedPath.has_parent_path(), "No parent path? No place to strip pdb");
 
             std::filesystem::path directory = resolvedPath.parent_path();
             std::wstring wFilename = std::filesystem::path(filepath).filename().replace_extension().wstring();
@@ -103,7 +105,8 @@ namespace Neb::nri
             dxcArguments.push_back(L"-Fd");
             dxcArguments.push_back(wPdbPath.c_str());
         }
-        else dxcArguments.push_back(L"-Qembed_debug"); // If we do not strip, we embed it
+        else
+            dxcArguments.push_back(L"-Qembed_debug"); // If we do not strip, we embed it
 
         if (flags & eShaderCompilationFlag_StripReflect)
             dxcArguments.push_back(L"-Qstrip_reflect");
@@ -115,8 +118,7 @@ namespace Neb::nri
             targetProfile.data(),
             dxcArguments.data(), static_cast<UINT32>(dxcArguments.size()),
             defines.data(), static_cast<UINT32>(defines.size()),
-            compilerArgs.GetAddressOf())
-        );
+            compilerArgs.GetAddressOf()));
 
         CompilationResult result = {};
         D3D12Rc<IDxcBlobEncoding> srcBlobEncoding;
@@ -179,8 +181,7 @@ namespace Neb::nri
                 compilationResult->GetOutput(
                     DXC_OUT_REFLECTION,
                     IID_PPV_ARGS(result.Reflection.GetAddressOf()),
-                    nullptr)
-            );
+                    nullptr));
         }
 
         return result;

@@ -13,7 +13,7 @@ namespace Neb::nri
 {
 
     using EShaderCompilationFlags = uint32_t;
-    enum  EShaderCompilationFlag
+    enum EShaderCompilationFlag
     {
         eShaderCompilationFlag_None = 0,
 
@@ -56,9 +56,9 @@ namespace Neb::nri
         }
 
         std::vector<ShaderDefine> Defines;
-        const std::string_view  EntryPoint;
-        const EShaderModel      ShaderModel;
-        const EShaderType       ShaderType;
+        const std::string_view EntryPoint;
+        const EShaderModel ShaderModel;
+        const EShaderType ShaderType;
     };
 
     class ShaderCompiler
@@ -91,8 +91,8 @@ namespace Neb::nri
             std::wstring_view targetProfile,
             const std::vector<DxcDefine>& defines, EShaderCompilationFlags flags);
 
-        D3D12Rc<IDxcUtils>          m_dxcUtils;
-        D3D12Rc<IDxcCompiler3>      m_dxcCompiler;
+        D3D12Rc<IDxcUtils> m_dxcUtils;
+        D3D12Rc<IDxcCompiler3> m_dxcCompiler;
         D3D12Rc<IDxcIncludeHandler> m_dxcIncludeHandler;
     };
 

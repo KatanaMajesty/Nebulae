@@ -1,7 +1,7 @@
 #include "GLTFSceneImporter.h"
 
 #include <array>
-#include "../common/Defines.h"
+#include "../common/Assert.h"
 #include "../common/Log.h"
 #include "../nri/Device.h"
 
@@ -12,10 +12,9 @@ namespace Neb
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
         nri::ThrowIfFailed(device.GetDevice()->CreateFence(
-            m_copyFenceValue, 
-            D3D12_FENCE_FLAG_NONE, 
-            IID_PPV_ARGS(m_copyFence.GetAddressOf())
-        ));
+            m_copyFenceValue,
+            D3D12_FENCE_FLAG_NONE,
+            IID_PPV_ARGS(m_copyFence.GetAddressOf())));
     }
 
     bool GLTFSceneImporter::ImportScenesFromFile(const std::filesystem::path& filepath)
@@ -25,7 +24,7 @@ namespace Neb
 
         if (!m_GLTFLoader.LoadASCIIFromFile(&m_GLTFModel, &err, &warn, filepath.string()))
         {
-            NEB_ASSERT(!err.empty());
+            NEB_ASSERT(!err.empty(), "Failed to load ASCII from glTF file ({})", err);
             NEB_LOG_ERROR("{}", err);
             return false;
         }
@@ -50,7 +49,7 @@ namespace Neb
 
         // Before returning wait for scene to be fully loaded
         WaitD3D12ResourcesOnCopyQueue();
-        
+
         // At the very end submit postprocessing work for static mesh
         // Postprocessing work may vary, but as of now it is just generating GPU buffer to store tangents
         if (IsTangentPostprocessingNeeded())
@@ -59,18 +58,18 @@ namespace Neb
             WaitD3D12ResourcesOnCopyQueue();
         }
 
-        m_stagingBuffers.clear(); // cleanup staging buffers
+        m_stagingBuffers.clear();       // cleanup staging buffers
         return !ImportedScenes.empty(); // If no scenes were imported then we failed apparently
     }
 
     void GLTFSceneImporter::Clear()
     {
         // You should not cleanup the importer while it is processing resources
-        NEB_ASSERT(m_stagingBuffers.empty());
+        NEB_ASSERT(m_stagingBuffers.empty(), "GLTFSceneImporter should not be cleaned while processing resources");
 
         ImportedScenes.clear();
         m_GLTFLoader = tinygltf::TinyGLTF(); // just in case clean it up as well
-        m_GLTFModel = tinygltf::Model(); // destroy this as well
+        m_GLTFModel = tinygltf::Model();     // destroy this as well
         m_GLTFTextures.clear();
         m_GLTFBuffers.clear();
     }
@@ -96,13 +95,11 @@ namespace Neb
         if (!m_stagingCommandList)
         {
             nri::ThrowIfFailed(device.GetDevice()->CreateCommandList1(0,
-                D3D12_COMMAND_LIST_TYPE_COPY, 
-                D3D12_COMMAND_LIST_FLAG_NONE, 
-                IID_PPV_ARGS(m_stagingCommandList.GetAddressOf())
-            ));
+                D3D12_COMMAND_LIST_TYPE_COPY,
+                D3D12_COMMAND_LIST_FLAG_NONE,
+                IID_PPV_ARGS(m_stagingCommandList.GetAddressOf())));
         }
-        
-        NEB_ASSERT(m_stagingCommandList);
+
         nri::CommandAllocatorPool& allocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Copy);
         nri::D3D12Rc<ID3D12CommandAllocator> allocator = allocatorPool.QueryAllocator();
         nri::ThrowIfFailed(m_stagingCommandList->Reset(allocator.Get(), nullptr));
@@ -132,7 +129,8 @@ namespace Neb
 
         for (size_t i = 0; i < numImages; ++i)
         {
-            NEB_ASSERT(m_GLTFTextures[i] == nullptr); // they cannot be valid here
+            // they cannot be valid here
+            NEB_ASSERT(m_GLTFTextures[i] == nullptr, "Importer cleanup went wrong at some point. There should be no textures");
             tinygltf::Image& src = m_GLTFModel.images[i];
             if (src.image.empty())
                 continue;
@@ -166,8 +164,7 @@ namespace Neb
                     0, numSubresources,
                     0,
                     &footprint,
-                    &numRows, &numBytesInRow, &numTotalBytes
-                );
+                    &numRows, &numBytesInRow, &numTotalBytes);
             }
 
             // Upload desc
@@ -217,7 +214,7 @@ namespace Neb
     bool GLTFSceneImporter::SubmitD3D12Buffers()
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
-     
+
         const size_t numBuffers = m_GLTFModel.buffers.size();
         m_GLTFBuffers.clear();
         m_GLTFBuffers.resize(numBuffers);
@@ -244,9 +241,8 @@ namespace Neb
                     &resourceDesc,
                     D3D12_RESOURCE_STATE_COMMON, // No need to use copy dest state. Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
                     nullptr, allocation.GetAddressOf(),
-                    IID_PPV_ARGS(m_GLTFBuffers[i].GetAddressOf()))
-                );
-                
+                    IID_PPV_ARGS(m_GLTFBuffers[i].GetAddressOf())));
+
                 // hack to convert from string to wstring using <filesystem>. Not sure if that ok to do
                 m_GLTFBuffers[i]->SetName(std::filesystem::path(src.name).wstring().c_str());
             }
@@ -266,8 +262,7 @@ namespace Neb
                     &uploadDesc,
                     D3D12_RESOURCE_STATE_GENERIC_READ, // This is the required starting state for an upload heap
                     nullptr, allocation.GetAddressOf(),
-                    IID_PPV_ARGS(uploadBuffer.GetAddressOf()))
-                );
+                    IID_PPV_ARGS(uploadBuffer.GetAddressOf())));
                 m_stagingBuffers.push_back(uploadBuffer);
 
                 void* data;
@@ -302,7 +297,7 @@ namespace Neb
         // Initial idea here was to handle manually calculated tangents, as we need to submit them into buffers as well
         // And also we need to create buffer views for each submesh
         nri::NRIDevice& device = nri::NRIDevice::Get();
-        NEB_ASSERT(m_stagingCommandList); // Do no lazy initialize it here, just assume it is created
+        NEB_ASSERT(m_stagingCommandList, "Command list for staging resources must already be created here");
 
         nri::CommandAllocatorPool& allocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Copy);
         nri::D3D12Rc<ID3D12CommandAllocator> allocator = allocatorPool.QueryAllocator();
@@ -332,21 +327,20 @@ namespace Neb
                 for (nri::StaticSubmesh& submesh : mesh.Submeshes)
                 {
                     // We shoud assume that there are raw tangents everywhere
-                    NEB_ASSERT(!submesh.Attributes[nri::eAttributeType_Tangents].empty());
-                    NEB_ASSERT(submesh.AttributeStrides[nri::eAttributeType_Tangents] == TangentStride);
+                    NEB_ASSERT(!submesh.Attributes[nri::eAttributeType_Tangents].empty(), "No attributes in tangent buffer?");
+                    NEB_ASSERT(submesh.AttributeStrides[nri::eAttributeType_Tangents] == TangentStride, "Tangent stride differs from {}", TangentStride);
                     numTotalVertices += submesh.NumVertices;
                 }
-    
-        NEB_ASSERT(numTotalVertices > 0);
+
+        NEB_ASSERT(numTotalVertices > 0, "Number of vertices cannot be 0 here...");
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
         size_t numTotalBytes = TangentStride * numTotalVertices;
         nri::D3D12Rc<ID3D12Resource> tangentBuffer = m_GLTFBuffers.emplace_back();
         {
-            D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{ 
-                .SizeInBytes = numTotalBytes, 
-                .Alignment = 0 
-            });
+            D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{
+                .SizeInBytes = numTotalBytes,
+                .Alignment = 0 });
             D3D12MA::Allocator* allocator = device.GetResourceAllocator();
             D3D12MA::ALLOCATION_DESC allocDesc = {
                 .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
@@ -359,16 +353,14 @@ namespace Neb
                 &resourceDesc,
                 D3D12_RESOURCE_STATE_COMMON, // No need to use copy dest state. Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
                 nullptr, allocation.GetAddressOf(),
-                IID_PPV_ARGS(tangentBuffer.GetAddressOf()))
-            );
+                IID_PPV_ARGS(tangentBuffer.GetAddressOf())));
         }
-        
+
         nri::D3D12Rc<ID3D12Resource> uploadBuffer;
         {
-            D3D12_RESOURCE_DESC uploadDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{ 
-                .SizeInBytes = numTotalBytes, 
-                .Alignment = 0 
-            });
+            D3D12_RESOURCE_DESC uploadDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{
+                .SizeInBytes = numTotalBytes,
+                .Alignment = 0 });
             D3D12MA::Allocator* allocator = device.GetResourceAllocator();
             D3D12MA::ALLOCATION_DESC allocDesc = {
                 .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
@@ -381,8 +373,7 @@ namespace Neb
                 &uploadDesc,
                 D3D12_RESOURCE_STATE_GENERIC_READ, // This is the required starting state for an upload heap
                 nullptr, allocation.GetAddressOf(),
-                IID_PPV_ARGS(uploadBuffer.GetAddressOf()))
-            );
+                IID_PPV_ARGS(uploadBuffer.GetAddressOf())));
             m_stagingBuffers.push_back(uploadBuffer);
 
             // Map the data
@@ -400,7 +391,7 @@ namespace Neb
                     {
                         size_t numBytes = submesh.Attributes[nri::eAttributeType_Tangents].size();
                         std::memcpy(data + currentOffsetInBytes, submesh.Attributes[nri::eAttributeType_Tangents].data(), numBytes);
-                        
+
                         submesh.AttributeBuffers[nri::eAttributeType_Tangents] = tangentBuffer;
                         submesh.AttributeViews[nri::eAttributeType_Tangents] = D3D12_VERTEX_BUFFER_VIEW{
                             .BufferLocation = tangentBuffer->GetGPUVirtualAddress() + currentOffsetInBytes,
@@ -425,7 +416,7 @@ namespace Neb
         {
             // Wait until the fence is completed.
             HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
-            NEB_ASSERT(fenceEvent != NULL);
+            NEB_ASSERT(fenceEvent != NULL, "Failed to create HANDLE for event");
 
             nri::ThrowIfFailed(m_copyFence->SetEventOnCompletion(m_copyFenceValue, fenceEvent));
             WaitForSingleObject(fenceEvent, INFINITE);
@@ -434,7 +425,7 @@ namespace Neb
 
     bool GLTFSceneImporter::ImportGLTFNode(Scene* scene, tinygltf::Scene& src, int32_t nodeID)
     {
-        NEB_ASSERT(nodeID >= 0);
+        NEB_ASSERT(nodeID >= 0, "Invalid node (-1) should not be passed here");
         tinygltf::Node& node = m_GLTFModel.nodes[nodeID];
 
         if (node.mesh != -1)
@@ -470,16 +461,16 @@ namespace Neb
 
             // For attribute spec there is a table in https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes-overview
             // Each attribute has its own name defined by spec which is good
-            
+
             // We also want a few healthy assertions be done before processing submeshes' vertices
-            NEB_ASSERT(primitive.attributes.contains("POSITION")); // Nothing to do without positions!
+            NEB_ASSERT(primitive.attributes.contains("POSITION"), "No positions present? Bail");
             // Hate to handle those, just assume they are there, we could work it around by generating for primitives though
-            NEB_ASSERT(primitive.attributes.contains("NORMAL")); 
+            NEB_ASSERT(primitive.attributes.contains("NORMAL"), "No normals? Bail for now");
             // Nebulae also assumes tex coords are there. Just export glTF with texcoords generated
             // FYI from spec: Client implementations SHOULD support at least two texture coordinate sets, one vertex color, and one joints/weights set.
             // we support only 1 now :(
-            NEB_ASSERT(primitive.attributes.contains("TEXCOORD_0"));
-            
+            NEB_ASSERT(primitive.attributes.contains("TEXCOORD_0"), "We need texture coords here!");
+
             static const std::pair<std::string, nri::EAttributeType> AttributeMap[] = {
                 { "POSITION", nri::eAttributeType_Position },
                 { "NORMAL", nri::eAttributeType_Normal },
@@ -489,7 +480,7 @@ namespace Neb
 
             // Set amount of vertices before processing (to get more healthy checks)
             submesh.NumVertices = m_GLTFModel.accessors[primitive.attributes["POSITION"]].count;
-    
+
             // Process each attribute separately
             for (auto& [attribute, type] : AttributeMap)
             {
@@ -498,7 +489,9 @@ namespace Neb
                     continue;
 
                 tinygltf::Accessor& accessor = m_GLTFModel.accessors[primitive.attributes[attribute]];
-                NEB_ASSERT(accessor.count == submesh.NumVertices); // should be equal, otherwise our bad
+
+                // should be equal, otherwise our bad
+                NEB_ASSERT(accessor.count == submesh.NumVertices, "Just a healthy check to ensure everything is correct up to this point");
 
                 // Buffer views are optional in specification of glTF 2.0, but they are required in tinygltf
                 // because tinygltf does not support sparse accessors
@@ -509,13 +502,13 @@ namespace Neb
                 submesh.Attributes[type].clear();
                 submesh.Attributes[type].resize(bufferView.byteLength);
                 std::memcpy(
-                    submesh.Attributes[type].data(), 
-                    bytes.data.data() + bufferView.byteOffset + accessor.byteOffset, 
+                    submesh.Attributes[type].data(),
+                    bytes.data.data() + bufferView.byteOffset + accessor.byteOffset,
                     bufferView.byteLength - accessor.byteOffset);
 
                 // Store stride of an attribute as well (in bytes)
                 const UINT stride = accessor.ByteStride(bufferView);
-                NEB_ASSERT(stride != -1); // fail if invalid
+                NEB_ASSERT(stride != -1, "Invalid stride from buffer view"); // fail if invalid
                 submesh.AttributeStrides[type] = stride;
 
                 nri::D3D12Rc<ID3D12Resource> buffer = m_GLTFBuffers[bufferView.buffer];
@@ -536,7 +529,7 @@ namespace Neb
 
                 // TODO: Check if that makes sense?
                 submesh.NumIndices = accessor.count;
-                
+
                 // Copy buffer info, we treat it as a byte-stream
                 submesh.IndicesStride = accessor.ByteStride(bufferView);
                 submesh.Indices.clear();
@@ -552,7 +545,7 @@ namespace Neb
                 case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE: format = DXGI_FORMAT_R8_UINT; break;
                 case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: format = DXGI_FORMAT_R16_UINT; break;
                 case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: format = DXGI_FORMAT_R32_UINT; break;
-                default: NEB_ASSERT(false); format = DXGI_FORMAT_UNKNOWN;
+                default: NEB_ASSERT(false, "Unsupported component type?"); format = DXGI_FORMAT_UNKNOWN;
                 }
 
                 nri::D3D12Rc<ID3D12Resource> buffer = m_GLTFBuffers[bufferView.buffer];
@@ -566,27 +559,27 @@ namespace Neb
             else
             {
                 // No indices - throw warn because we dont really handle it
-                NEB_ASSERT(false);
+                NEB_ASSERT(false, "No indices!");
                 NEB_LOG_WARN("No indices!");
             }
-            
+
             // TANGENT GENERATION
-            // 
+            //
             // Optional in Nebulae are texture coords and tangents. If no tangents though - Nebulae generates them
             // In Nebulae to check if attribute is there we could just check its stride and compare it to the stride we need
             if (submesh.Attributes[nri::eAttributeType_Tangents].empty())
             {
                 // stride of tangents != 0 -> means there are tangents inside. We can work with them
                 // If no tangents provided - calculate them using vertices of primitives
-                NEB_ASSERT(submesh.AttributeStrides[nri::eAttributeType_Normal] == sizeof(Vec3));
-                NEB_ASSERT(submesh.AttributeStrides[nri::eAttributeType_Position] == sizeof(Vec3));
-                NEB_ASSERT(submesh.AttributeStrides[nri::eAttributeType_TexCoords] == sizeof(Vec2));
+                NEB_ASSERT(submesh.AttributeStrides[nri::eAttributeType_Normal] == sizeof(Vec3), "Normals should be of size {}", sizeof(Vec3));
+                NEB_ASSERT(submesh.AttributeStrides[nri::eAttributeType_Position] == sizeof(Vec3), "Positions should be of size {}", sizeof(Vec3));
+                NEB_ASSERT(submesh.AttributeStrides[nri::eAttributeType_TexCoords] == sizeof(Vec2), "Tex coords should be of size {}", sizeof(Vec2));
 
                 // Nebulae just works with triangular static meshes when generating tangents
                 // we need that to guarantee that each 3 indices of a primitive will represent a single triangle
-                NEB_ASSERT(primitive.mode == TINYGLTF_MODE_TRIANGLES);
-                NEB_ASSERT(submesh.NumIndices > 0 && submesh.NumIndices % 3 == 0);
-                
+                NEB_ASSERT(primitive.mode == TINYGLTF_MODE_TRIANGLES, "We currently only support triangles");
+                NEB_ASSERT(submesh.NumIndices > 0 && submesh.NumIndices % 3 == 0, "Just to clarify there are no leftover indices");
+
                 Vec3* normals = reinterpret_cast<Vec3*>(submesh.Attributes[nri::eAttributeType_Normal].data());
                 Vec3* positions = reinterpret_cast<Vec3*>(submesh.Attributes[nri::eAttributeType_Position].data());
                 Vec2* texCoords = reinterpret_cast<Vec2*>(submesh.Attributes[nri::eAttributeType_TexCoords].data());
@@ -603,10 +596,13 @@ namespace Neb
                 uint32_t numPrimitives = submesh.NumIndices / 3;
                 for (uint32_t i = 0; i < numPrimitives; ++i)
                 {
+                    static constexpr size_t kIndices32Stride = sizeof(uint32_t);
+                    static constexpr size_t kIndices16Stride = sizeof(uint16_t);
+
                     // we handle both 32bit and 16bit indices here
                     // https://gamedev.stackexchange.com/questions/68612/how-to-compute-tangent-and-bitangent-vectors
                     uint32_t i0, i1, i2;
-                    if (submesh.IndicesStride == sizeof(uint32_t))
+                    if (submesh.IndicesStride == kIndices32Stride)
                     {
                         uint32_t* indices = reinterpret_cast<uint32_t*>(submesh.Indices.data());
                         i0 = indices[(i * 3) + 0];
@@ -615,7 +611,11 @@ namespace Neb
                     }
                     else
                     {
-                        NEB_ASSERT(submesh.IndicesStride == sizeof(uint16_t));
+                        NEB_ASSERT(submesh.IndicesStride == kIndices16Stride,
+                            "Stride of indices should either be {} or {}",
+                            kIndices32Stride,
+                            kIndices16Stride);
+
                         uint16_t* indices = reinterpret_cast<uint16_t*>(submesh.Indices.data());
                         i0 = indices[(i * 3) + 0];
                         i1 = indices[(i * 3) + 1];
@@ -642,9 +642,12 @@ namespace Neb
                     // Tangent is stored in Vec4, where Vec4.w is a sign value indicating handedness of the tangent basis
                     // We can use that information to calculate bitangent efficiently
                     // We will manually convert signed tangents from glTF to vec3 tangents/bitangents
-                    tan1[i0] += sd; tan2[i0] += td;
-                    tan1[i1] += sd; tan2[i1] += td;
-                    tan1[i2] += sd; tan2[i2] += td;
+                    tan1[i0] += sd;
+                    tan2[i0] += td;
+                    tan1[i1] += sd;
+                    tan2[i1] += td;
+                    tan1[i2] += sd;
+                    tan2[i2] += td;
                 }
 
                 for (uint32_t i = 0; i < submesh.NumVertices; ++i)
@@ -673,7 +676,7 @@ namespace Neb
             {
                 tinygltf::Material& srcMaterial = m_GLTFModel.materials[primitive.material];
                 tinygltf::PbrMetallicRoughness& pbrMaterial = srcMaterial.pbrMetallicRoughness;
-                
+
                 // check if has albedo map
                 material.Textures[nri::eMaterialTextureType_Albedo] = GetTextureFromGLTFScene(pbrMaterial.baseColorTexture.index);
                 if (!material.Textures[nri::eMaterialTextureType_Albedo])
@@ -686,7 +689,7 @@ namespace Neb
                 }
 
                 material.Textures[nri::eMaterialTextureType_Normal] = GetTextureFromGLTFScene(srcMaterial.normalTexture.index);
-                NEB_ASSERT(material.Textures[nri::eMaterialTextureType_Normal]); // Always require normal map
+                NEB_ASSERT(material.Textures[nri::eMaterialTextureType_Normal], "We require normal map");
 
                 material.Textures[nri::eMaterialTextureType_RoughnessMetalness] = GetTextureFromGLTFScene(pbrMaterial.metallicRoughnessTexture.index);
                 if (!material.Textures[nri::eMaterialTextureType_RoughnessMetalness])
@@ -715,7 +718,7 @@ namespace Neb
 
         tinygltf::Texture& location = m_GLTFModel.textures[index];
 
-        NEB_ASSERT(location.source >= 0); // Not required (???)... I am worried :(
+        NEB_ASSERT(location.source >= 0, "Texture should always have a location? Not sure. Check if hit");
         nri::D3D12Rc<ID3D12Resource> srcTexture = m_GLTFTextures[location.source];
         return srcTexture;
     }

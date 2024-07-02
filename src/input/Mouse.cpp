@@ -1,17 +1,19 @@
 #include "Mouse.h"
 
+#include "../common/Assert.h"
+
 namespace Neb
 {
 
     void Mouse::NotifyWheelScroll(int32_t value)
     {
-        NEB_ASSERT(value == -1 || value == 1);
-        
+        NEB_ASSERT(value == -1 || value == 1, "Wrong notify values");
+
         MouseEvent_Scrolled event = MouseEvent_Scrolled{
             .Value = value,
             .Hotspot = m_cursorHotspot,
         };
-    
+
         // TODO: (as of 18.02.2024) From WARP ENGINE -> Callbacks may be called from another thread. Racing is not handled here
         auto& callbackContainer = GetEventCallbackContainer<MouseEvent_Scrolled>();
         for (const auto& callback : callbackContainer)
@@ -20,7 +22,7 @@ namespace Neb
 
     void Mouse::SetMouseButtonStates(EMouseButton button, EMouseButtonStates states)
     {
-        NEB_ASSERT(button < eMouseButton_NumButtons); // out of bounds
+        NEB_ASSERT(button < eMouseButton_NumButtons, "Wrong button, out of bounds!"); // out of bounds
 
         // Firstly update states, as we guarantee this update to happen before any callbacks
         EMouseButtonStates prevStates = m_buttonStates[button];
@@ -39,13 +41,12 @@ namespace Neb
             auto& callbackContainer = GetEventCallbackContainer<MouseEvent_ButtonInteraction>();
             for (const auto& callback : callbackContainer)
                 std::invoke(callback, event);
-
         }
     }
 
     EMouseButtonStates Mouse::GetMouseButtonStates(EMouseButton button) const
     {
-        NEB_ASSERT(button < eMouseButton_NumButtons); // out of bounds
+        NEB_ASSERT(button < eMouseButton_NumButtons, "Wrong button, out of bounds!"); // out of bounds
         return m_buttonStates[button];
     }
 

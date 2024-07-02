@@ -21,7 +21,7 @@ namespace Neb::nri
         BOOL Init(HWND hwnd);
 
         // Resizes all the backbuffers of the swapchain. If width == 0 && height == 0 the swapchain will
-        // use the dimentions of window's client area 
+        // use the dimentions of window's client area
         BOOL Resize(UINT width = 0, UINT height = 0);
         UINT GetWidth() const { return m_swapchainDesc.BufferDesc.Width; }
         UINT GetHeight() const { return m_swapchainDesc.BufferDesc.Height; }

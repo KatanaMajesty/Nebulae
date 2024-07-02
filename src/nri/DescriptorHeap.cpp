@@ -1,6 +1,6 @@
 #include "DescriptorHeap.h"
 
-#include "../common/Defines.h"
+#include "../common/Assert.h"
 
 namespace Neb::nri
 {
@@ -22,7 +22,9 @@ namespace Neb::nri
 
     DescriptorAllocation DescriptorHeap::operator[](UINT index) const
     {
-        NEB_ASSERT(index < m_numDescriptors); // If you are here then its time to fix bound checks... Were too lazy
+        // If you are here then its time to fix bound checks... Were too lazy
+        NEB_ASSERT(index < m_numDescriptors, "Out of bounds");
+
         return DescriptorAllocation{
             .DescriptorHandle = CD3DX12_CPU_DESCRIPTOR_HANDLE(GetCPUDescriptorHandleForHeapStart(), index, m_descriptorHandleIncrementSize),
             .DescriptorIndex = index
@@ -39,7 +41,8 @@ namespace Neb::nri
 
             AllocationIndex = nextFreeIndex;
         }
-        else m_currentDesciptorIndex++; // If we did not get the index from queue - increment current descriptor index
+        else
+            m_currentDesciptorIndex++; // If we did not get the index from queue - increment current descriptor index
 
         return operator[](AllocationIndex);
     }

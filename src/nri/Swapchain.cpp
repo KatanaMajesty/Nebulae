@@ -1,6 +1,6 @@
 #include "Swapchain.h"
 
-#include "../common/Defines.h"
+#include "../common/Assert.h"
 #include "Device.h"
 
 namespace Neb::nri
@@ -30,10 +30,9 @@ namespace Neb::nri
             device.GetCommandQueue(eCommandContextType_Graphics),
             hwnd,
             &swapchainDesc,
-            NULL,   // Set it to NULL to create a windowed swap chain.
-            NULL,   // Set this parameter to NULL if you don't want to restrict content to an output target.
-            swapchain.GetAddressOf()
-        ));
+            NULL, // Set it to NULL to create a windowed swap chain.
+            NULL, // Set this parameter to NULL if you don't want to restrict content to an output target.
+            swapchain.GetAddressOf()));
         m_dxgiSwapchain.Reset();
         ThrowIfFailed(swapchain.As(&m_dxgiSwapchain));
 
@@ -54,7 +53,7 @@ namespace Neb::nri
     {
         if (!ReleaseDxgiReferences())
         {
-            NEB_ASSERT(false); // Failed to release references! Someone else uses them!
+            NEB_ASSERT(false, "Failed to release swapchain references! Someone uses them");
             return FALSE;
         }
 
@@ -67,14 +66,14 @@ namespace Neb::nri
         DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN; // preserve the original format of the swapchain as for now
         if (FAILED(m_dxgiSwapchain->ResizeBuffers(NumBackbuffers, width, height, format, flags)))
         {
-            NEB_ASSERT(false);
+            NEB_ASSERT(false, "Could not resize DXGISwapchain buffers");
             return FALSE;
         }
 
         // We assume that the client already issued a wait for graphics queue to finish executing all frames
         for (UINT i = 0; i < NumBackbuffers; ++i)
         {
-            ThrowIfFailed( m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].GetAddressOf())) );
+            ThrowIfFailed(m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].GetAddressOf())));
             device.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
         }
 

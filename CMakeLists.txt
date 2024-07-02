@@ -6,6 +6,7 @@ add_executable(DXRNebulae WIN32)
 set_property(TARGET DXRNebulae PROPERTY CXX_STANDARD 23)
 
 target_sources(DXRNebulae PRIVATE
+    "src/common/Assert.h"
     "src/common/Defines.h"
     "src/common/Log.h"
     "src/common/TimeWatch.h"
@@ -23,6 +24,8 @@ target_sources(DXRNebulae PRIVATE
     "src/input/Mouse.h"
     "src/nri/CommandAllocatorPool.cpp"
     "src/nri/CommandAllocatorPool.h"
+    "src/nri/ConstantBuffer.cpp"
+    "src/nri/ConstantBuffer.h"
     "src/nri/DepthStencilBuffer.cpp"
     "src/nri/DepthStencilBuffer.h"
     "src/nri/DescriptorAllocation.cpp"

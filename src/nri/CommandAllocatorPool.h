@@ -1,4 +1,4 @@
-#pragma once 
+#pragma once
 
 #include <queue>
 #include "stdafx.h"
@@ -9,7 +9,7 @@ namespace Neb::nri
     // The idea of command allocator pool is to simplify and allow for simple
     // command allocator reusability abstraction
     //
-    // The implementation approach is as follows: 
+    // The implementation approach is as follows:
     // -    The main method, across which the pool is designed is QueryAllocator(), this method will handle
     //      all the behavior related to command allocator retrieval
     //
@@ -29,7 +29,7 @@ namespace Neb::nri
         // REMARK: The command allocator returned will already be reset
         D3D12Rc<ID3D12CommandAllocator> QueryAllocator();
 
-        // Discarding an allocator allows for easier command allocator management. 
+        // Discarding an allocator allows for easier command allocator management.
         // By storing fence and value associated with command execution
         // we can check whether or not command allocator is still needed (in queue).
         // If such allocator is no more used (fenceValue is completed) we can return it in the next QueryAllocator() call
@@ -44,7 +44,7 @@ namespace Neb::nri
             ID3D12Fence* Fence = NULL;
             UINT64 FenceValue = 0;
 
-            // The allocator to be queried upon  
+            // The allocator to be queried upon
             D3D12Rc<ID3D12CommandAllocator> Allocator = NULL;
         };
 

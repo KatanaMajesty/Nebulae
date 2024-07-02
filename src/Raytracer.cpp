@@ -1,6 +1,6 @@
 #include "Raytracer.h"
 
-#include "common/Defines.h"
+#include "common/Assert.h"
 #include "common/Log.h"
 #include "nri/Device.h"
 
@@ -9,7 +9,7 @@ namespace Neb
 
     bool Raytracer::Init(const RaytracingContext& context)
     {
-        NEB_ASSERT(context.Swapchain && context.DepthStencilBuffer);
+        NEB_ASSERT(context.Swapchain && context.DepthStencilBuffer, "Not valid context");
         m_context = context;
 
         nri::NRIDevice& device = nri::NRIDevice::Get();
@@ -24,14 +24,14 @@ namespace Neb
 
     void Raytracer::RenderScene(Scene* scene)
     {
-        //m_commandList->Reset();
+        // m_commandList->Reset();
     }
 
     void Raytracer::InitCommandList()
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
-        //device.GetDevice()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, )
+        // device.GetDevice()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, )
     }
 
     void Raytracer::InitRootSignatureAndShaders()

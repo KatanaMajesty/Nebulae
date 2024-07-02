@@ -1,6 +1,6 @@
 #include "Nebulae.h"
 
-#include "common/Defines.h"
+#include "common/Assert.h"
 #include "common/Log.h"
 #include "nri/Device.h"
 
@@ -23,8 +23,8 @@ namespace Neb
 
         if (!m_renderer.Init(appSpec.Handle))
         {
+            NEB_ASSERT(false, "Failed to initialize renderer");
             NEB_LOG_ERROR("Nebulae -> Failed to initialize renderer");
-            NEB_ASSERT(false);
             return false;
         }
 
@@ -38,7 +38,7 @@ namespace Neb
 
     void Nebulae::Render()
     {
-        NEB_ASSERT(IsInitialized());
+        NEB_ASSERT(IsInitialized(), "Nebulae is not initialized");
         if (m_sceneImporter.ImportedScenes.empty())
             return;
 
@@ -62,7 +62,7 @@ namespace Neb
 
     void Nebulae::Resize(UINT width, UINT height)
     {
-        NEB_ASSERT(IsInitialized());
+        NEB_ASSERT(IsInitialized(), "Nebulae is not initialized");
         m_renderer.Resize(width, height);
     }
 

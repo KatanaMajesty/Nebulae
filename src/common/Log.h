@@ -1,8 +1,9 @@
 #pragma once
 
 #include "Defines.h"
-#include <format>
+
 #include <iostream>
+#include <print>
 
 #if defined(NEB_DEBUG)
 #define NEB_LOG_INFO(msg, ...) (std::println(std::cout, msg, ##__VA_ARGS__))

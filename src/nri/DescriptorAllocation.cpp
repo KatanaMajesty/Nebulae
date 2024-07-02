@@ -2,7 +2,7 @@
 
 namespace Neb::nri
 {
-    
+
     D3D12_CPU_DESCRIPTOR_HANDLE DescriptorRange::GetCPUHandle(UINT index) const
     {
         return CD3DX12_CPU_DESCRIPTOR_HANDLE(CPUBeginHandle, DescriptorIncrementSize, index);

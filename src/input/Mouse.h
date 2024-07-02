@@ -7,13 +7,12 @@
 #include <stdexcept>
 
 #include "InputCallback.h"
-#include "../common/Defines.h"
 
 namespace Neb
 {
 
     // For future mouse implementation - https://learn.microsoft.com/en-us/windows/win32/inputdev/mouse-input
-    
+
     enum EMouseButton : uint16_t
     {
         eMouseButton_Invalid = 0,
@@ -24,7 +23,7 @@ namespace Neb
     };
 
     using EMouseButtonStates = uint8_t;
-    enum  EMouseButtonState : uint8_t
+    enum EMouseButtonState : uint8_t
     {
         eMouseButtonState_Released = 0,
         eMouseButtonState_ClickedOnce = 1,
@@ -32,7 +31,7 @@ namespace Neb
         eMouseButtonState_Clicked = eMouseButtonState_ClickedOnce | eMouseButtonState_ClickedTwice,
     };
 
-    // The mouse cursor contains a single-pixel point called the hot spot, 
+    // The mouse cursor contains a single-pixel point called the hot spot,
     // a point that the system tracks and recognizes as the position of the cursor
     struct MouseCursorHotspot
     {
@@ -46,7 +45,7 @@ namespace Neb
     // MouseEvent_Scrolled struct helps application to handle mouse wheel scroll events
     struct MouseEvent_Scrolled
     {
-        // Stores the direction of a wheel scroll. 
+        // Stores the direction of a wheel scroll.
         // If a scroll is up then positive (+1)
         // If a scroll is down then negative (-1)
         int32_t Value;
@@ -60,7 +59,7 @@ namespace Neb
     struct MouseEvent_CursorHotspotChanged
     {
         // PrevHotspot is a hotspot that was previously stored by the application
-        // After handling this event 
+        // After handling this event
         MouseCursorHotspot PrevHotspot;
 
         // NextHotspot defines the new updated position of the cursor
@@ -69,7 +68,7 @@ namespace Neb
         MouseCursorHotspot NextHotspot;
     };
 
-    // MouseEvent_ButtonInteraction struct helps application to handle button press events 
+    // MouseEvent_ButtonInteraction struct helps application to handle button press events
     struct MouseEvent_ButtonInteraction
     {
         // Button that the interaction is related to
@@ -80,7 +79,7 @@ namespace Neb
         EMouseButtonStates PrevStates;
 
         // NextStates flags define new updated states of the button states
-        // it is guaranteed that at the moment of receiving the event the interacted button for which interaction 
+        // it is guaranteed that at the moment of receiving the event the interacted button for which interaction
         // event was fired already stores the new hotspot value in it
         EMouseButtonStates NextStates;
 
@@ -112,7 +111,7 @@ namespace Neb
 
         std::array<EMouseButtonStates, eMouseButton_NumButtons> m_buttonStates = {};
         MouseCursorHotspot m_cursorHotspot = {};
-    
+
         // Remark: Adding any more callback containers will require tweaking GetEventCallbackContainer() method
         InputEventCallbackContainer<MouseEvent_Scrolled> m_mouseScrolledCallbacks;
         InputEventCallbackContainer<MouseEvent_CursorHotspotChanged> m_hotspotChangedCallbacks;
@@ -136,7 +135,8 @@ namespace Neb
         else if constexpr (std::is_same_v<EventType, MouseEvent_ButtonInteraction>)
             return m_buttonInteractionCallbacks;
         // Should not happen! do not use unsupported event types
-        else throw std::runtime_error("Trying to access callback container of unsupported type");
+        else
+            throw std::runtime_error("Trying to access callback container of unsupported type");
     }
 
 } // Neb namespace

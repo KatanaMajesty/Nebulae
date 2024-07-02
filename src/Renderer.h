@@ -25,7 +25,7 @@ namespace Neb
         static constexpr UINT NumInflightFrames = nri::Swapchain::NumBackbuffers;
 
         BOOL Init(HWND hwnd);
-        
+
         void RenderScene(float timestep, Scene* scene);
         void Resize(UINT width, UINT height);
 
@@ -33,8 +33,8 @@ namespace Neb
         UINT GetHeight() const { return m_swapchain.GetHeight(); }
 
     private:
-        void PopulateCommandLists(float timestep, Scene* scene);
-    
+        void PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene);
+
         // Synchronizes with in-flight, waits if needed
         // returns  frame index of the next frame (as a swapchain's backbuffer index)
         UINT NextFrame();
@@ -49,7 +49,7 @@ namespace Neb
 
         void InitCommandList();
         nri::D3D12Rc<ID3D12GraphicsCommandList> m_commandList;
-    
+
         void InitRootSignatureAndShaders();
         nri::D3D12Rc<ID3D12RootSignature> m_rootSignature;
         nri::Shader m_vsBasic;

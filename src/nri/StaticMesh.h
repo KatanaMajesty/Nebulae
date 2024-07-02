@@ -42,34 +42,30 @@ namespace Neb::nri
     struct StaticMesh
     {
         // Static mesh is pretty much an array of submeshes
-        std::vector<StaticSubmesh> Submeshes;        
+        std::vector<StaticSubmesh> Submeshes;
         std::vector<Material> SubmeshMaterials; // TODO: Maybe replace with proxies, figure out best way to cache
     };
 
     static constexpr std::array StaticMeshInputLayout = {
-        D3D12_INPUT_ELEMENT_DESC
-        {
+        D3D12_INPUT_ELEMENT_DESC{
             .SemanticName = "POSITION",
             .SemanticIndex = 0,
             .Format = DXGI_FORMAT_R32G32B32_FLOAT,
             .InputSlot = 0,
         },
-        D3D12_INPUT_ELEMENT_DESC
-        {
+        D3D12_INPUT_ELEMENT_DESC{
             .SemanticName = "NORMAL",
             .SemanticIndex = 0,
             .Format = DXGI_FORMAT_R32G32B32_FLOAT,
             .InputSlot = 1,
         },
-        D3D12_INPUT_ELEMENT_DESC
-        {
+        D3D12_INPUT_ELEMENT_DESC{
             .SemanticName = "TEXCOORD",
             .SemanticIndex = 0,
             .Format = DXGI_FORMAT_R32G32_FLOAT,
             .InputSlot = 2,
         },
-        D3D12_INPUT_ELEMENT_DESC
-        {
+        D3D12_INPUT_ELEMENT_DESC{
             .SemanticName = "TANGENT",
             .SemanticIndex = 0,
             .Format = DXGI_FORMAT_R32G32B32A32_FLOAT,

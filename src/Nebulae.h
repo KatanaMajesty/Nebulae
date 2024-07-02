@@ -27,7 +27,7 @@ namespace Neb
         Nebulae& operator=(const Nebulae&) = delete;
 
         static Nebulae& Get();
-    
+
         bool Init(const AppSpec& appSpec);
         bool IsInitialized() const { return m_isInitialized; }
 

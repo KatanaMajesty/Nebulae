@@ -23,7 +23,7 @@ namespace Neb
 
         Mouse& GetMouse() { return m_mouse; }
         const Mouse& GetMouse() const { return m_mouse; }
-    
+
         Keyboard& GetKeyboard() { return m_keyboard; }
         const Keyboard& GetKeyboard() const { return m_keyboard; }
 

@@ -19,9 +19,9 @@ namespace Neb
         constexpr void Push(ConvertibleFunctor&& callback, Args&&... args) noexcept
         {
             auto binding = [&callback, args...](const EventType& e) noexcept
-                {
-                    std::invoke(callback, args..., e);
-                };
+            {
+                std::invoke(callback, args..., e);
+            };
             Callbacks.push_back(binding);
         }
 

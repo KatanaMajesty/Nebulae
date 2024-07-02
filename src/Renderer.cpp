@@ -1,10 +1,10 @@
 #include "Renderer.h"
 
-#include "common/Defines.h"
+#include "common/Assert.h"
 #include "common/Log.h"
 #include "nri/Device.h"
 
-// TODO: Remove this when shader library is implemented. 
+// TODO: Remove this when shader library is implemented.
 // Currently needed to initialize root signature. Shaders are needed for that and we need assets directory
 #include "Nebulae.h"
 
@@ -13,7 +13,7 @@ namespace Neb
 
     BOOL Renderer::Init(HWND hwnd)
     {
-        NEB_ASSERT(hwnd != NULL);
+        NEB_ASSERT(hwnd != NULL, "Window handle is null");
 
         // Now initialize the swapchain
         if (!m_swapchain.Init(hwnd))
@@ -31,9 +31,8 @@ namespace Neb
         // Init fence
         nri::ThrowIfFailed(nri::NRIDevice::Get().GetDevice()->CreateFence(
             m_fenceValues[m_frameIndex],
-            D3D12_FENCE_FLAG_NONE, 
-            IID_PPV_ARGS(m_fence.GetAddressOf())
-        ));
+            D3D12_FENCE_FLAG_NONE,
+            IID_PPV_ARGS(m_fence.GetAddressOf())));
 
         InitCommandList();
         InitRootSignatureAndShaders();
@@ -54,7 +53,7 @@ namespace Neb
         // Reset with nullptr as initial state, not to be bothered
         nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
         {
-            PopulateCommandLists(timestep, scene);
+            PopulateCommandLists(frameIndex, timestep, scene);
         }
         nri::ThrowIfFailed(m_commandList->Close());
 
@@ -82,9 +81,9 @@ namespace Neb
         m_depthStencilBuffer.Resize(width, height);
     }
 
-    void Renderer::PopulateCommandLists(float timestep, Scene* scene)
+    void Renderer::PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene)
     {
-        NEB_ASSERT(m_commandList && scene);
+        NEB_ASSERT(m_commandList && scene, "Invalid populate context");
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
         {
@@ -149,9 +148,11 @@ namespace Neb
 
             for (nri::StaticMesh& staticMesh : scene->StaticMeshes)
             {
-                NEB_ASSERT(staticMesh.Submeshes.size() == staticMesh.SubmeshMaterials.size());
-
                 const size_t numSubmeshes = staticMesh.Submeshes.size();
+                NEB_ASSERT(numSubmeshes == staticMesh.SubmeshMaterials.size(),
+                    "Static mesh is invalid. It has {} submeshes while only {} materials",
+                    numSubmeshes, staticMesh.SubmeshMaterials.size());
+
                 for (size_t i = 0; i < numSubmeshes; ++i)
                 {
                     nri::StaticSubmesh& submesh = staticMesh.Submeshes[i];
@@ -180,15 +181,15 @@ namespace Neb
     UINT Renderer::NextFrame()
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
-        
+
         UINT64 currentFenceValue = m_fenceValues[m_frameIndex];
         m_frameIndex = m_swapchain.GetCurrentBackbufferIndex();
-        
+
         UINT64& nextFenceValue = m_fenceValues[m_frameIndex];
         if (m_fence->GetCompletedValue() < nextFenceValue)
         {
             HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
-            NEB_ASSERT(fenceEvent);
+            NEB_ASSERT(fenceEvent, "Failed to create HANDLE for event");
 
             // Wait until the fence is completed.
             nri::ThrowIfFailed(m_fence->SetEventOnCompletion(nextFenceValue, fenceEvent));
@@ -207,7 +208,7 @@ namespace Neb
         if (m_fence->GetCompletedValue() < fenceValue)
         {
             HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
-            NEB_ASSERT(fenceEvent);
+            NEB_ASSERT(fenceEvent, "Failed to create HANDLE for event");
 
             // Wait until the fence is completed.
             nri::ThrowIfFailed(m_fence->SetEventOnCompletion(fenceValue, fenceEvent));
@@ -223,8 +224,7 @@ namespace Neb
         nri::ThrowIfFailed(device.GetDevice()->CreateCommandList1(0,
             D3D12_COMMAND_LIST_TYPE_DIRECT,
             D3D12_COMMAND_LIST_FLAG_NONE,
-            IID_PPV_ARGS(m_commandList.ReleaseAndGetAddressOf())
-        ));
+            IID_PPV_ARGS(m_commandList.ReleaseAndGetAddressOf())));
     }
 
     void Renderer::InitRootSignatureAndShaders()
@@ -236,24 +236,19 @@ namespace Neb
         m_vsBasic = m_shaderCompiler.CompileShader(
             shaderFilepath,
             nri::ShaderCompilationDesc("VSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Vertex),
-            nri::eShaderCompilationFlag_None
-        );
-        NEB_ASSERT(m_vsBasic.HasBinary());
+            nri::eShaderCompilationFlag_None);
 
         m_psBasic = m_shaderCompiler.CompileShader(
             shaderFilepath,
             nri::ShaderCompilationDesc("PSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Pixel),
-            nri::eShaderCompilationFlag_None
-        );
-        NEB_ASSERT(m_psBasic.HasBinary());
+            nri::eShaderCompilationFlag_None);
 
         std::vector<CD3DX12_ROOT_PARAMETER1> rootParams;
         CD3DX12_ROOT_PARAMETER1& cbInstanceInfoRootParam = rootParams.emplace_back();
         cbInstanceInfoRootParam.InitAsConstantBufferView(0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_VERTEX);
 
         CD3DX12_ROOT_PARAMETER1& materialTexturesRootParam = rootParams.emplace_back();
-        D3D12_DESCRIPTOR_RANGE1 materialTexturesRange
-            = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, nri::eMaterialTextureType_NumTypes, 0, 0);
+        D3D12_DESCRIPTOR_RANGE1 materialTexturesRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, nri::eMaterialTextureType_NumTypes, 0, 0);
         materialTexturesRootParam.InitAsDescriptorTable(1, &materialTexturesRange, D3D12_SHADER_VISIBILITY_PIXEL);
 
         D3D12_STATIC_SAMPLER_DESC staticSampler = CD3DX12_STATIC_SAMPLER_DESC(0);
@@ -276,8 +271,7 @@ namespace Neb
         nri::ThrowIfFailed(device.GetDevice()->CreateRootSignature(0,
             blob->GetBufferPointer(),
             blob->GetBufferSize(),
-            IID_PPV_ARGS(m_rootSignature.ReleaseAndGetAddressOf())
-        ));
+            IID_PPV_ARGS(m_rootSignature.ReleaseAndGetAddressOf())));
     }
 
     void Renderer::InitPipelineState()
@@ -313,8 +307,7 @@ namespace Neb
 
         D3D12_RESOURCE_DESC cbInstanceInfoResourceDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{
             .SizeInBytes = sizeof(CbInstanceInfo),
-            .Alignment = 0
-            });
+            .Alignment = 0 });
         D3D12MA::Allocator* allocator = device.GetResourceAllocator();
         D3D12MA::ALLOCATION_DESC cbInstanceInfoAllocDesc = {
             .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
@@ -327,12 +320,11 @@ namespace Neb
             D3D12_RESOURCE_STATE_GENERIC_READ,
             nullptr,
             allocation.GetAddressOf(),
-            IID_PPV_ARGS(m_cbInstanceInfoBuffer.ReleaseAndGetAddressOf())
-        ));
+            IID_PPV_ARGS(m_cbInstanceInfoBuffer.ReleaseAndGetAddressOf())));
 
         void* mapping;
         nri::ThrowIfFailed(m_cbInstanceInfoBuffer->Map(0, nullptr, &mapping));
-        NEB_ASSERT(mapping);
+        NEB_ASSERT(mapping, "Failed to obtain mapping");
         m_cbInstanceInfoBufferMapping = reinterpret_cast<CbInstanceInfo*>(mapping);
 
         D3D12_CONSTANT_BUFFER_VIEW_DESC cbInstanceInfoDesc = {

@@ -27,7 +27,7 @@ namespace Neb::nri
         D3D12_CPU_DESCRIPTOR_HANDLE GetCPUHandle(UINT index = 0) const;
         D3D12_GPU_DESCRIPTOR_HANDLE GetGPUHandle(UINT index = 0) const;
 
-        D3D12_CPU_DESCRIPTOR_HANDLE	CPUBeginHandle = CD3DX12_CPU_DESCRIPTOR_HANDLE();
+        D3D12_CPU_DESCRIPTOR_HANDLE CPUBeginHandle = CD3DX12_CPU_DESCRIPTOR_HANDLE();
         D3D12_GPU_DESCRIPTOR_HANDLE GPUBeginHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE();
         UINT NumDescriptors = 0;
         UINT DescriptorIndex = UINT(-1);

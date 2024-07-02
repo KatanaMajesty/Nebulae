@@ -1,13 +1,13 @@
 #include "Keyboard.h"
 
-#include "../common/Defines.h"
+#include "../common/Assert.h"
 
 namespace Neb
 {
 
     void Keyboard::SetKeycodeState(EKeycode keycode, EKeycodeState state)
     {
-        NEB_ASSERT(keycode < eKeycode_NumKeycodes); // out of bounds
+        NEB_ASSERT(keycode < eKeycode_NumKeycodes, "Wrong keycode, out of bounds!"); // out of bounds
 
         // Firstly update states, as we guarantee this update to happen before any callbacks
         EKeycodeState prevState = m_keycodeStates[keycode];
