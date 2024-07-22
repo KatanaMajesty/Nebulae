@@ -2,12 +2,15 @@
 
 #include "core/Scene.h"
 
+#include "nri/ConstantBuffer.h"
 #include "nri/DepthStencilBuffer.h"
 #include "nri/Shader.h"
 #include "nri/ShaderCompiler.h"
 #include "nri/Swapchain.h"
 
 #include "Raytracer.h"
+
+#include <array>
 
 namespace Neb
 {
@@ -58,10 +61,8 @@ namespace Neb
         void InitPipelineState();
         nri::D3D12Rc<ID3D12PipelineState> m_pipelineState;
 
-        void InitInstanceInfoCb();
-        CbInstanceInfo* m_cbInstanceInfoBufferMapping = nullptr;
-        nri::D3D12Rc<ID3D12Resource> m_cbInstanceInfoBuffer;
-        nri::DescriptorAllocation m_cbInstanceInfoDescriptor;
+        void InitInstanceCb();
+        nri::ConstantBuffer m_cbInstance;
     };
 
 }

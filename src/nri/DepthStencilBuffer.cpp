@@ -12,7 +12,7 @@ namespace Neb::nri
         m_desc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R24G8_TYPELESS, width, height, 1, 1);
         m_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
         m_desc.Flags |= D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
-        m_depthStencilView = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_DSV).AllocateDescriptor();
+        m_depthStencilView = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_DSV).AllocateDescriptors(1);
         AllocateAll();
         return TRUE;
     }
@@ -58,7 +58,7 @@ namespace Neb::nri
             .Flags = D3D12_DSV_FLAG_NONE,
             .Texture2D = D3D12_TEX2D_DSV{ .MipSlice = 0 }
         };
-        device.GetDevice()->CreateDepthStencilView(m_bufferAllocation->GetResource(), &dsvDesc, m_depthStencilView.DescriptorHandle);
+        device.GetDevice()->CreateDepthStencilView(m_bufferAllocation->GetResource(), &dsvDesc, m_depthStencilView.CpuAt(0));
     }
 
 }

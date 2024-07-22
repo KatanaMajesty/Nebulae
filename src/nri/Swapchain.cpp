@@ -37,11 +37,11 @@ namespace Neb::nri
         ThrowIfFailed(swapchain.As(&m_dxgiSwapchain));
 
         // Create the render target view
+        m_renderTargetViews = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV).AllocateDescriptors(NumBackbuffers);
         for (UINT i = 0; i < NumBackbuffers; ++i)
         {
             ThrowIfFailed(m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].ReleaseAndGetAddressOf())));
-            m_renderTargetViews[i] = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV).AllocateDescriptor();
-            device.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
+            device.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews.CpuAt(i));
         }
 
         // Get description of swapchain to easily obtain dimensions
@@ -74,7 +74,7 @@ namespace Neb::nri
         for (UINT i = 0; i < NumBackbuffers; ++i)
         {
             ThrowIfFailed(m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].GetAddressOf())));
-            device.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews[i].DescriptorHandle);
+            device.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews.CpuAt(i));
         }
 
         // Get description of swapchain to easily obtain dimensions

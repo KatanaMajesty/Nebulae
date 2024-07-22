@@ -37,7 +37,7 @@ namespace Neb
         InitCommandList();
         InitRootSignatureAndShaders();
         InitPipelineState();
-        InitInstanceInfoCb();
+        InitInstanceCb();
         return TRUE;
     }
 
@@ -108,12 +108,12 @@ namespace Neb
             m_commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
 
             static const Neb::Vec4 rtvClearColor = Neb::Vec4(0.0f, 0.0f, 0.0f, 1.0f);
-            const nri::DescriptorAllocation& rtvDescriptor = m_swapchain.GetCurrentBackbufferRtv();
-            m_commandList->ClearRenderTargetView(rtvDescriptor.DescriptorHandle, &rtvClearColor.x, 0, nullptr);
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvDescriptor = m_swapchain.GetCurrentBackbufferRtvHandle();
+            m_commandList->ClearRenderTargetView(rtvDescriptor, &rtvClearColor.x, 0, nullptr);
 
-            const nri::DescriptorAllocation& dsvDescriptor = m_depthStencilBuffer.GetDSV();
-            m_commandList->ClearDepthStencilView(dsvDescriptor.DescriptorHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-            m_commandList->OMSetRenderTargets(1, &rtvDescriptor.DescriptorHandle, FALSE, &m_depthStencilBuffer.GetDSV().DescriptorHandle);
+            const nri::DescriptorHeapAllocation& dsvDescriptor = m_depthStencilBuffer.GetDSV();
+            m_commandList->ClearDepthStencilView(dsvDescriptor.CpuAt(0), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+            m_commandList->OMSetRenderTargets(1, &rtvDescriptor, FALSE, &m_depthStencilBuffer.GetDSV().CpuAddress);
 
             D3D12_VIEWPORT viewport = CD3DX12_VIEWPORT(0.0f, 0.0f, m_swapchain.GetWidth(), m_swapchain.GetHeight());
             m_commandList->RSSetViewports(1, &viewport);
@@ -143,8 +143,8 @@ namespace Neb
                 .ViewProj = view * projection,
             };
 
-            std::memcpy(m_cbInstanceInfoBufferMapping, &cbInstanceInfo, sizeof(CbInstanceInfo));
-            m_commandList->SetGraphicsRootConstantBufferView(0, m_cbInstanceInfoBuffer->GetGPUVirtualAddress());
+            std::memcpy(m_cbInstance.GetMapping<CbInstanceInfo>(frameIndex), &cbInstanceInfo, sizeof(CbInstanceInfo));
+            m_commandList->SetGraphicsRootConstantBufferView(0, m_cbInstance.GetGpuVirtualAddress(frameIndex));
 
             for (nri::StaticMesh& staticMesh : scene->StaticMeshes)
             {
@@ -158,7 +158,7 @@ namespace Neb
                     nri::StaticSubmesh& submesh = staticMesh.Submeshes[i];
                     nri::Material& material = staticMesh.SubmeshMaterials[i];
 
-                    m_commandList->SetGraphicsRootDescriptorTable(1, material.SrvRange.GPUBeginHandle);
+                    m_commandList->SetGraphicsRootDescriptorTable(1, material.SrvRange.GpuAddress);
 
                     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                     m_commandList->IASetVertexBuffers(0, nri::eAttributeType_NumTypes, submesh.AttributeViews.data());
@@ -301,38 +301,11 @@ namespace Neb
         nri::ThrowIfFailed(device.GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(m_pipelineState.ReleaseAndGetAddressOf())));
     }
 
-    void Renderer::InitInstanceInfoCb()
+    void Renderer::InitInstanceCb()
     {
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-
-        D3D12_RESOURCE_DESC cbInstanceInfoResourceDesc = CD3DX12_RESOURCE_DESC::Buffer(D3D12_RESOURCE_ALLOCATION_INFO{
-            .SizeInBytes = sizeof(CbInstanceInfo),
-            .Alignment = 0 });
-        D3D12MA::Allocator* allocator = device.GetResourceAllocator();
-        D3D12MA::ALLOCATION_DESC cbInstanceInfoAllocDesc = {
-            .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
-            .HeapType = D3D12_HEAP_TYPE_UPLOAD, // It alright to use upload heap for small-sized resources (i guess?)
-        };
-        nri::D3D12Rc<D3D12MA::Allocation> allocation;
-        nri::ThrowIfFailed(device.GetResourceAllocator()->CreateResource(
-            &cbInstanceInfoAllocDesc,
-            &cbInstanceInfoResourceDesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            allocation.GetAddressOf(),
-            IID_PPV_ARGS(m_cbInstanceInfoBuffer.ReleaseAndGetAddressOf())));
-
-        void* mapping;
-        nri::ThrowIfFailed(m_cbInstanceInfoBuffer->Map(0, nullptr, &mapping));
-        NEB_ASSERT(mapping, "Failed to obtain mapping");
-        m_cbInstanceInfoBufferMapping = reinterpret_cast<CbInstanceInfo*>(mapping);
-
-        D3D12_CONSTANT_BUFFER_VIEW_DESC cbInstanceInfoDesc = {
-            .BufferLocation = m_cbInstanceInfoBuffer->GetGPUVirtualAddress(),
-            .SizeInBytes = sizeof(CbInstanceInfo)
-        };
-        m_cbInstanceInfoDescriptor = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptor();
-        device.GetDevice()->CreateConstantBufferView(&cbInstanceInfoDesc, m_cbInstanceInfoDescriptor.DescriptorHandle);
+        nri::ThrowIfFalse(m_cbInstance.Init(nri::ConstantBufferDesc{
+            .NumBuffers = Renderer::NumInflightFrames,
+            .NumBytesPerBuffer = sizeof(CbInstanceInfo) }));
     }
 
 } // Neb namespace

@@ -2,7 +2,7 @@
 
 #include "stdafx.h"
 #include "../core/Math.h"
-#include "DescriptorAllocation.h"
+#include "DescriptorHeapAllocation.h"
 
 namespace Neb::nri
 {
@@ -34,7 +34,7 @@ namespace Neb::nri
         //
         // The idea is to store descriptors for each material texture in one descriptor range
         // If material dont have a specific texture then null descriptor will be in place, thats it
-        DescriptorRange SrvRange; // Albedo, Normal, RoughnessMetalness
+        DescriptorHeapAllocation SrvRange; // Albedo, Normal, RoughnessMetalness
     };
 
 }

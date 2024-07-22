@@ -179,7 +179,11 @@ namespace Neb::nri
         for (UINT i = 0; i < D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES; ++i)
         {
             D3D12_DESCRIPTOR_HEAP_TYPE type = (D3D12_DESCRIPTOR_HEAP_TYPE)i;
-            m_descriptorHeaps[i].Init(GetDevice(), NumDescriptors[type], type, Flags[type]);
+            m_descriptorHeaps[i].Init(GetDevice(), D3D12_DESCRIPTOR_HEAP_DESC{
+                                                       .Type = type,
+                                                       .NumDescriptors = NumDescriptors[type],
+                                                       .Flags = Flags[type],
+                                                   });
         }
     }
 

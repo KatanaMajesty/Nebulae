@@ -2,7 +2,7 @@
 
 #include <algorithm>
 #include "stdafx.h"
-#include "DescriptorAllocation.h"
+#include "DescriptorHeapAllocation.h"
 #include "DescriptorHeap.h"
 
 namespace Neb::nri
@@ -33,8 +33,10 @@ namespace Neb::nri
 
         ID3D12Resource* GetBackbuffer(UINT index) { return m_renderTargets[index].Get(); }
         ID3D12Resource* GetCurrentBackbuffer() { return GetBackbuffer(GetCurrentBackbufferIndex()); }
-        const DescriptorAllocation& GetBackbufferRtv(UINT index) const { return m_renderTargetViews[index]; }
-        const DescriptorAllocation& GetCurrentBackbufferRtv() const { return GetBackbufferRtv(GetCurrentBackbufferIndex()); }
+        const DescriptorHeapAllocation& GetBackbufferRtvs() const { return m_renderTargetViews; }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE GetBackbufferRtvHandle(UINT index) const { return m_renderTargetViews.CpuAt(index); }
+        D3D12_CPU_DESCRIPTOR_HANDLE GetCurrentBackbufferRtvHandle() const { return m_renderTargetViews.CpuAt(GetCurrentBackbufferIndex()); }
 
     private:
         BOOL ReleaseDxgiReferences();
@@ -42,7 +44,7 @@ namespace Neb::nri
         DXGI_SWAP_CHAIN_DESC m_swapchainDesc = {};
         D3D12Rc<IDXGISwapChain4> m_dxgiSwapchain;
         D3D12Rc<ID3D12Resource> m_renderTargets[NumBackbuffers];
-        DescriptorAllocation m_renderTargetViews[NumBackbuffers];
+        DescriptorHeapAllocation m_renderTargetViews;
     };
 
 }

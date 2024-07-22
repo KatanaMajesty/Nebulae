@@ -698,7 +698,7 @@ namespace Neb
                 nri::NRIDevice& device = nri::NRIDevice::Get();
                 nri::DescriptorHeap& descriptorHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-                material.SrvRange = descriptorHeap.AllocateDescriptorRange(nri::eMaterialTextureType_NumTypes);
+                material.SrvRange = descriptorHeap.AllocateDescriptors(nri::eMaterialTextureType_NumTypes);
                 for (UINT i = 0; i < nri::eMaterialTextureType_NumTypes; ++i)
                     InitMaterialTextureDescriptor(material.Textures[i].Get(), (nri::EMaterialTextureType)i, material.SrvRange);
             }
@@ -723,7 +723,7 @@ namespace Neb
         return srcTexture;
     }
 
-    void GLTFSceneImporter::InitMaterialTextureDescriptor(ID3D12Resource* resource, nri::EMaterialTextureType type, const nri::DescriptorRange& range)
+    void GLTFSceneImporter::InitMaterialTextureDescriptor(ID3D12Resource* resource, nri::EMaterialTextureType type, const nri::DescriptorHeapAllocation& heapAllocation)
     {
         static constexpr D3D12_SHADER_RESOURCE_VIEW_DESC NullDescriptorSrvDesc = D3D12_SHADER_RESOURCE_VIEW_DESC{
             .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
@@ -732,7 +732,7 @@ namespace Neb
             .Texture2D = D3D12_TEX2D_SRV{ .MipLevels = 1 }
         };
 
-        D3D12_CPU_DESCRIPTOR_HANDLE handle = range.GetCPUHandle(type);
+        D3D12_CPU_DESCRIPTOR_HANDLE handle = heapAllocation.CpuAt(type);
         // https://microsoft.github.io/DirectX-Specs/d3d/ResourceBinding.html#null-descriptors
         // passing NULL for the resource pointer in the descriptor definition achieves the effect of an “unbound” resource.
         nri::NRIDevice& device = nri::NRIDevice::Get();
