@@ -93,19 +93,17 @@ namespace Neb
             };
             m_commandList->SetDescriptorHeaps(static_cast<UINT>(shaderVisibleHeaps.size()), shaderVisibleHeaps.data());
 
-            // No need to sync backbuffers yet
-            // TODO: Revisit this and make it inflight
-
             ID3D12Resource* backbuffer = m_swapchain.GetCurrentBackbuffer();
-            std::array<D3D12_RESOURCE_BARRIER, 2> barriers = {
-                CD3DX12_RESOURCE_BARRIER::Transition(backbuffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET),
-                CD3DX12_RESOURCE_BARRIER::Transition(
-                    m_depthStencilBuffer.GetBufferResource(),
-                    D3D12_RESOURCE_STATE_COMMON,
-                    D3D12_RESOURCE_STATE_DEPTH_WRITE),
-            };
-
-            m_commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
+            {
+                std::array barriers = {
+                    CD3DX12_RESOURCE_BARRIER::Transition(backbuffer, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_RENDER_TARGET),
+                    CD3DX12_RESOURCE_BARRIER::Transition(
+                        m_depthStencilBuffer.GetBufferResource(),
+                        D3D12_RESOURCE_STATE_COMMON,
+                        D3D12_RESOURCE_STATE_DEPTH_WRITE),
+                };
+                m_commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
+            }
 
             static const Neb::Vec4 rtvClearColor = Neb::Vec4(0.0f, 0.0f, 0.0f, 1.0f);
             D3D12_CPU_DESCRIPTOR_HANDLE rtvDescriptor = m_swapchain.GetCurrentBackbufferRtvHandle();
@@ -167,14 +165,18 @@ namespace Neb
                 }
             }
 
-            barriers = {
-                CD3DX12_RESOURCE_BARRIER::Transition(backbuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT),
-                CD3DX12_RESOURCE_BARRIER::Transition(
-                    m_depthStencilBuffer.GetBufferResource(),
-                    D3D12_RESOURCE_STATE_DEPTH_WRITE,
-                    D3D12_RESOURCE_STATE_COMMON),
-            };
-            m_commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
+            // Do transition in a separate scope for better readibility
+            {
+                std::array barriers = {
+                    CD3DX12_RESOURCE_BARRIER::Transition(backbuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON),
+                    CD3DX12_RESOURCE_BARRIER::Transition(
+                        m_depthStencilBuffer.GetBufferResource(),
+                        D3D12_RESOURCE_STATE_DEPTH_WRITE,
+                        D3D12_RESOURCE_STATE_COMMON),
+                };
+                m_commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
+            }
+            
         }
     }
 

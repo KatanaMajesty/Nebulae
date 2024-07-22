@@ -24,13 +24,19 @@ namespace Neb::nri
         }
 
         m_nextDescriptorIndex = nextIndex; // If we did not get the index from queue - increment current descriptor index
-        return DescriptorHeapAllocation{
+        DescriptorHeapAllocation allocation = {
             .CpuAddress = CD3DX12_CPU_DESCRIPTOR_HANDLE(m_heap->GetCPUDescriptorHandleForHeapStart(), beginIndex, m_incrementSize),
-            .GpuAddress = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_heap->GetGPUDescriptorHandleForHeapStart(), beginIndex, m_incrementSize),
             .NumDescriptors = numDescriptors,
             .DescriptorIncrementSize = m_incrementSize,
             .Index = beginIndex,
         };
+
+        // Only assign Gpu address to shader visible descriptors
+        if (m_desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
+            m_desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+            allocation.GpuAddress = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_heap->GetGPUDescriptorHandleForHeapStart(), beginIndex, m_incrementSize);
+
+        return allocation;
     }
 
 } // Neb::nri namespace
