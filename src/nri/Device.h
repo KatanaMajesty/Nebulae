@@ -56,7 +56,7 @@ namespace Neb::nri
         IDXGIFactory6* GetDxgiFactory() { return m_dxgiFactory.Get(); }
 
         // General D3D12-related calls
-        ID3D12Device4* GetDevice() { return m_device.Get(); }
+        ID3D12Device5* GetDevice() { return m_device.Get(); }
         const NRIDeviceCapabilities& GetCapabilities() const { return m_capabilities; }
 
         // Command context related calls
@@ -81,7 +81,7 @@ namespace Neb::nri
         BOOL IsDxgiAdapterSuitable(IDXGIAdapter3* dxgiAdapter, const DXGI_ADAPTER_DESC1& desc) const;
         BOOL QueryMostSuitableDeviceAdapter();
         D3D12Rc<IDXGIAdapter3> m_dxgiAdapter;
-        D3D12Rc<ID3D12Device4> m_device;
+        D3D12Rc<ID3D12Device5> m_device;
 
         NRIDeviceCapabilities m_capabilities = {};
         BOOL QueryDxgiFactoryTearingSupport() const;

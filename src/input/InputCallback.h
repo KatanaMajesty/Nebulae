@@ -16,9 +16,9 @@ namespace Neb
         // TODO: To support member function, this was the easiest user-friendly efficient way I came up with
         // Maybe there are better approaches?
         template<typename ConvertibleFunctor, typename... Args>
-        constexpr void Push(ConvertibleFunctor&& callback, Args&&... args) noexcept
+        constexpr void Push(ConvertibleFunctor callback, Args&&... args) noexcept
         {
-            auto binding = [&callback, args...](const EventType& e) noexcept
+            auto binding = [callback, args...](const EventType& e) noexcept
             {
                 std::invoke(callback, args..., e);
             };

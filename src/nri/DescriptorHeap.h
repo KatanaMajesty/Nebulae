@@ -3,8 +3,6 @@
 #include "DescriptorHeapAllocation.h"
 #include "stdafx.h"
 
-#include <queue>
-
 namespace Neb::nri
 {
 

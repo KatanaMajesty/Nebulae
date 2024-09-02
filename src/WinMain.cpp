@@ -231,9 +231,7 @@ INT WINAPI WinMain(
     wndClass.lpszClassName = lpClassName;
     RegisterClass(&wndClass);
 
-    // This code will be moved to Nebulae soon
-    static const std::filesystem::path AssetsDir = GetModuleDirectory().parent_path().parent_path().parent_path() / "assets";
-
+    Neb::nri::NvNsightAftermathCrashTracker::Get()->Init();
     Neb::nri::NRIDevice& device = Neb::nri::NRIDevice::Get();
     device.Init();
 
@@ -262,24 +260,10 @@ INT WINAPI WinMain(
     // Initialize input-related contexts
     InitInputMappings();
 
+    // This code will be moved to Nebulae soon
+    static const std::filesystem::path AssetsDir = GetModuleDirectory().parent_path().parent_path().parent_path() / "assets";
     Neb::Nebulae& nebulae = Neb::Nebulae::Get();
     Neb::nri::ThrowIfFalse(nebulae.Init(Neb::AppSpec{ .Handle = hwnd, .AssetsDirectory = AssetsDir }));
-
-    Neb::GLTFSceneImporter& importer = nebulae.GetSceneImporter();
-    Neb::nri::ThrowIfFalse(importer.ImportScenesFromFile(AssetsDir / "DamagedHelmet" / "DamagedHelmet.gltf"));
-
-    // TODO: This is currently hardcoded as we know that very first scene will be used for rendering, thus we register its callbacks
-    Neb::Scene* scene = importer.ImportedScenes.front().get();
-    Neb::Mouse& mouse = Neb::InputManager::Get().GetMouse();
-    {
-        mouse.RegisterCallback<Neb::MouseEvent_Scrolled>(&Neb::Scene::OnMouseScroll, scene);
-        mouse.RegisterCallback<Neb::MouseEvent_CursorHotspotChanged>(&Neb::Scene::OnMouseCursorMoved, scene);
-        mouse.RegisterCallback<Neb::MouseEvent_ButtonInteraction>(&Neb::Scene::OnMouseButtonInteract, scene);
-    }
-    Neb::Keyboard& keyboard = Neb::InputManager::Get().GetKeyboard();
-    {
-        keyboard.RegisterCallback<Neb::KeyboardEvent_KeyInteraction>(&Neb::Nebulae::OnKeyInteraction, &nebulae);
-    }
 
     MSG msg = {};
     while (msg.message != WM_QUIT)
@@ -293,6 +277,8 @@ INT WINAPI WinMain(
         // Tick application here
         nebulae.Render();
     }
+
+    Neb::nri::NvNsightAftermathCrashTracker::Get()->Destroy();
 
     UnregisterClass(lpClassName, hInstance);
     return (INT)msg.wParam;

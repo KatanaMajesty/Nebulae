@@ -2,6 +2,7 @@
 
 #include "common/Assert.h"
 #include "common/Log.h"
+#include "input/InputManager.h"
 #include "nri/Device.h"
 
 namespace Neb
@@ -29,6 +30,25 @@ namespace Neb
         }
 
         m_sceneImporter.Clear();
+
+        nri::ThrowIfFalse(m_sceneImporter.ImportScenesFromFile(appSpec.AssetsDirectory / "DamagedHelmet" / "DamagedHelmet.gltf"));
+
+        // TODO: This is currently hardcoded as we know that very first scene will be used for rendering, thus we register its callbacks
+        Neb::Scene* scene = m_sceneImporter.ImportedScenes.front().get();
+        Neb::Mouse& mouse = Neb::InputManager::Get().GetMouse();
+        {
+            mouse.RegisterCallback<Neb::MouseEvent_Scrolled>(&Neb::Scene::OnMouseScroll, scene);
+            mouse.RegisterCallback<Neb::MouseEvent_CursorHotspotChanged>(&Neb::Scene::OnMouseCursorMoved, scene);
+            mouse.RegisterCallback<Neb::MouseEvent_ButtonInteraction>(&Neb::Scene::OnMouseButtonInteract, scene);
+        }
+        Neb::Keyboard& keyboard = Neb::InputManager::Get().GetKeyboard();
+        {
+            keyboard.RegisterCallback<Neb::KeyboardEvent_KeyInteraction>(&Neb::Nebulae::OnKeyInteraction, this);
+        }
+
+        // TODO: Temporary raytracing stuff
+        NEB_ASSERT(!scene->StaticMeshes.empty(), "Cannot be empty!");
+        nri::ThrowIfFalse(m_rtScene.InitForStaticMesh(scene->StaticMeshes.front()));
 
         // At the very end begin the time watch
         m_timeWatch.Begin();

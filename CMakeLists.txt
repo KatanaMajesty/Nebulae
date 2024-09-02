@@ -22,6 +22,9 @@ target_sources(DXRNebulae PRIVATE
     "src/input/Keyboard.h"
     "src/input/Mouse.cpp"
     "src/input/Mouse.h"
+    "src/nri/nvidia/NsightAftermathCrashTracker.cpp"
+    "src/nri/nvidia/NsightAftermathCrashTracker.h"
+    "src/nri/nvidia/NsightAftermathHelpers.h"
     "src/nri/CommandAllocatorPool.cpp"
     "src/nri/CommandAllocatorPool.h"
     "src/nri/ConstantBuffer.cpp"
@@ -61,6 +64,21 @@ target_sources(DXRNebulae PRIVATE
     "vendor/TinyGLTF/tiny_gltf.cc"
 )
 
+# Create an empty list variable
+set(NEBULAE_DLL_LIST "")
+
+# NVidia libs
+set(NV_GFSDK_AFTERMATH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/NVIDIA/Nsight_Aftermath")
+set(NV_GFSDK_AFTERMATH_LIBRARY_DIR "${NV_GFSDK_AFTERMATH_DIR}/lib/x64")
+target_sources(DXRNebulae PRIVATE
+    "${NV_GFSDK_AFTERMATH_DIR}/include/GFSDK_Aftermath.h"
+    "${NV_GFSDK_AFTERMATH_DIR}/include/GFSDK_Aftermath_Defines.h"
+    "${NV_GFSDK_AFTERMATH_DIR}/include/GFSDK_Aftermath_GpuCrashDump.h"
+    "${NV_GFSDK_AFTERMATH_DIR}/include/GFSDK_Aftermath_GpuCrashDumpDecoding.h"
+)
+target_link_directories(DXRNebulae PRIVATE ${NV_GFSDK_AFTERMATH_LIBRARY_DIR})
+target_compile_definitions(DXRNebulae PRIVATE NEB_USE_NSIGHT_AFTERMATH)
+
 set(NV_DXRHELPER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/DXRHelper")
 target_sources(DXRNebulae PRIVATE
     "${NV_DXRHELPER_DIR}/nv_helpers_dx12/BottomLevelASGenerator.cpp"
@@ -85,11 +103,18 @@ target_link_libraries(DXRNebulae
     "d3d12.lib"
     "dxgi.lib"
     "dxcompiler.lib"
+    "GFSDK_Aftermath_Lib.x64.lib"
 )
 
 # Copy DLLs to the out path
 # We need dxil.dll here to sign shaders compiled by DXC. Without signing them D3D12 runtime would fail
+list(APPEND NEBULAE_DLL_LIST ${CMAKE_CURRENT_SOURCE_DIR}/vendor/dxcompiler.dll)
+list(APPEND NEBULAE_DLL_LIST ${CMAKE_CURRENT_SOURCE_DIR}/vendor/dxil.dll)
+list(APPEND NEBULAE_DLL_LIST ${NV_GFSDK_AFTERMATH_LIBRARY_DIR}/GFSDK_Aftermath_Lib.x64.dll)
+# Join the list elements with a space separator
+string(REPLACE ";" " " my_list_str "${NEBULAE_DLL_LIST}")
+
 add_custom_command(TARGET DXRNebulae POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/vendor/dxcompiler.dll ${CMAKE_CURRENT_SOURCE_DIR}/vendor/dxil.dll $<TARGET_FILE_DIR:DXRNebulae>
+  COMMAND ${CMAKE_COMMAND} -E copy ${NEBULAE_DLL_LIST} $<TARGET_FILE_DIR:DXRNebulae>
   COMMAND_EXPAND_LISTS
 )

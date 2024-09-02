@@ -32,7 +32,7 @@ namespace Neb
         nri::ThrowIfFailed(nri::NRIDevice::Get().GetDevice()->CreateFence(
             m_fenceValues[m_frameIndex],
             D3D12_FENCE_FLAG_NONE,
-            IID_PPV_ARGS(m_fence.GetAddressOf())));
+            IID_PPV_ARGS(m_fence.ReleaseAndGetAddressOf())));
 
         InitCommandList();
         InitRootSignatureAndShaders();

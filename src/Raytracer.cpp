@@ -4,14 +4,16 @@
 #include "common/Log.h"
 #include "nri/Device.h"
 
+#include "DXRHelper/nv_helpers_dx12/BottomLevelASGenerator.h"
+#include "DXRHelper/nv_helpers_dx12/TopLevelASGenerator.h"
+
+#include <array>
+
 namespace Neb
 {
 
-    bool Raytracer::Init(const RaytracingContext& context)
+    bool RtScene::InitForStaticMesh(const nri::StaticMesh& staticMesh)
     {
-        NEB_ASSERT(context.Swapchain && context.DepthStencilBuffer, "Not valid context");
-        m_context = context;
-
         nri::NRIDevice& device = nri::NRIDevice::Get();
         if (device.GetCapabilities().RaytracingSupportTier == nri::ESupportTier_Raytracing::NotSupported)
         {
@@ -19,23 +21,244 @@ namespace Neb
             return false;
         }
 
+        InitCommandList();
+        InitASFences();
+
+        AddStaticMesh(staticMesh);
         return true;
     }
 
-    void Raytracer::RenderScene(Scene* scene)
+    void RtScene::AddStaticMesh(const nri::StaticMesh& staticMesh)
     {
-        // m_commandList->Reset();
+        if (staticMesh.Submeshes.empty())
+        {
+            NEB_LOG_WARN("Tried adding empty static mesh to RtScene");
+            return;
+        }
+
+        nri::ThrowIfFalse(InitAccelerationStructure(staticMesh));
     }
 
-    void Raytracer::InitCommandList()
+    void RtScene::InitCommandList()
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
-        // device.GetDevice()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, )
+        m_commandList.Reset();
+        nri::D3D12Rc<ID3D12GraphicsCommandList> commandList;
+        {
+            nri::ThrowIfFailed(device.GetDevice()->CreateCommandList1(0,
+                D3D12_COMMAND_LIST_TYPE_DIRECT,
+                D3D12_COMMAND_LIST_FLAG_NONE,
+                IID_PPV_ARGS(commandList.GetAddressOf())));
+        }
+        nri::ThrowIfFailed(commandList.As(&m_commandList));
     }
 
-    void Raytracer::InitRootSignatureAndShaders()
+    void RtScene::InitASFences()
     {
+        m_fenceValue = 0;
+
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        nri::ThrowIfFailed(nri::NRIDevice::Get().GetDevice()->CreateFence(
+            m_fenceValue,
+            D3D12_FENCE_FLAG_NONE,
+            IID_PPV_ARGS(m_accelerationStructFence.ReleaseAndGetAddressOf())));
+    }
+
+    RtAccelerationStructureBuffers RtScene::CreateBLAS(std::span<const RtBLASGeometryBuffer> geometryBuffers)
+    {
+        nv_helpers_dx12::BottomLevelASGenerator blasGenerator;
+
+        for (const RtBLASGeometryBuffer& geometry : geometryBuffers)
+        {
+            NEB_ASSERT(geometry.VertexStride == sizeof(Vec3), "Only support for vertex stride of {}", sizeof(Vec3));
+            blasGenerator.AddVertexBuffer(
+                geometry.Buffer.Get(),
+                geometry.VertexOffset, geometry.NumVertices, geometry.VertexStride,
+                nullptr, 0, // we are not using transform buffers in BLAS
+                true);
+        }
+
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+
+        // we do not update geometry (only static meshes)
+        UINT64 numScratchBytes;
+        UINT64 numBLASBytes;
+        blasGenerator.ComputeASBufferSizes(device.GetDevice(), false, &numScratchBytes, &numBLASBytes);
+
+        D3D12MA::Allocator* allocator = device.GetResourceAllocator();
+        D3D12MA::ALLOCATION_DESC allocDesc = { 
+            .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
+            .HeapType = D3D12_HEAP_TYPE_DEFAULT 
+        };
+
+        RtAccelerationStructureBuffers result;
+
+        // Create scratch buffer
+        {
+            D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numScratchBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+            
+            // Ignoring InitialState D3D12_RESOURCE_STATE_UNORDERED_ACCESS.
+            // Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
+            nri::Rc<D3D12MA::Allocation> allocation;
+            nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_COMMON,
+                nullptr,
+                allocation.GetAddressOf(),
+                IID_PPV_ARGS(result.ScratchBuffer.GetAddressOf())));
+        }
+
+        // Create ASBuffer
+        {
+            D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numBLASBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+            nri::Rc<D3D12MA::Allocation> allocation;
+            nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+                nullptr,
+                allocation.GetAddressOf(),
+                IID_PPV_ARGS(result.ASBuffer.GetAddressOf())));
+        }
+
+        // TODO: Figure out do we need to add transition to D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE for vertex buffer?
+        /*std::array barriers = {
+            CD3DX12_RESOURCE_BARRIER::Transition(backbuffer, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_RENDER_TARGET),
+            CD3DX12_RESOURCE_BARRIER::Transition(
+                m_depthStencilBuffer.GetBufferResource(),
+                D3D12_RESOURCE_STATE_COMMON,
+                D3D12_RESOURCE_STATE_DEPTH_WRITE),
+        }; */
+
+        blasGenerator.Generate(m_commandList.Get(), result.ScratchBuffer.Get(), result.ASBuffer.Get());
+        return result;
+    }
+
+    RtAccelerationStructureBuffers RtScene::CreateTLAS(std::span<const RtTLASInstanceBuffer> instanceBuffers)
+    {
+        nv_helpers_dx12::TopLevelASGenerator tlasGenerator;
+        for (UINT i = 0; i < instanceBuffers.size(); ++i)
+        {
+            const RtTLASInstanceBuffer& instance = instanceBuffers[i];
+            tlasGenerator.AddInstance(instance.ASBuffer.Get(), instance.Transformation, i, 0);
+        }
+
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+
+        UINT64 numScratchBytes;
+        UINT64 numTLASBytes;
+        UINT64 numInstanceDescriptorBytes;
+        tlasGenerator.ComputeASBufferSizes(device.GetDevice(), false, &numScratchBytes, &numTLASBytes, &numInstanceDescriptorBytes);
+
+        RtAccelerationStructureBuffers result;
+
+        D3D12MA::Allocator* allocator = device.GetResourceAllocator();
+        D3D12MA::ALLOCATION_DESC allocDesc = { .HeapType = D3D12_HEAP_TYPE_DEFAULT };
+
+        // Create scratch buffer
+        {
+            D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numScratchBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+            // Ignoring InitialState D3D12_RESOURCE_STATE_UNORDERED_ACCESS.
+            // Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
+            nri::Rc<D3D12MA::Allocation> allocation;
+            nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_COMMON,
+                nullptr,
+                allocation.GetAddressOf(),
+                IID_PPV_ARGS(result.ScratchBuffer.GetAddressOf())));
+        }
+
+        // Create ASBuffer
+        {
+            D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numTLASBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+            nri::Rc<D3D12MA::Allocation> allocation;
+            nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+                nullptr,
+                allocation.GetAddressOf(),
+                IID_PPV_ARGS(result.ASBuffer.GetAddressOf())));
+        }
+
+        // Instance descriptor buffer
+        {
+            D3D12MA::ALLOCATION_DESC instanceAllocDesc = { .HeapType = D3D12_HEAP_TYPE_UPLOAD };
+            D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numInstanceDescriptorBytes, D3D12_RESOURCE_FLAG_NONE);
+
+            nri::Rc<D3D12MA::Allocation> allocation;
+            nri::ThrowIfFailed(allocator->CreateResource(&instanceAllocDesc, &desc, D3D12_RESOURCE_STATE_COMMON,
+                nullptr,
+                allocation.GetAddressOf(),
+                IID_PPV_ARGS(result.InstanceDescriptorBuffer.GetAddressOf())));
+        }
+
+        tlasGenerator.Generate(m_commandList.Get(),
+            result.ScratchBuffer.Get(),
+            result.ASBuffer.Get(),
+            result.InstanceDescriptorBuffer.Get());
+        return result;
+    }
+
+    bool RtScene::InitAccelerationStructure(const nri::StaticMesh& staticMesh)
+    {
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
+
+        nri::Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
+        nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
+
+        RtAccelerationStructureBuffers blas, tlas;
+        {
+            // Create BLAS
+            std::vector<RtBLASGeometryBuffer> geometryBuffers;
+            geometryBuffers.reserve(staticMesh.Submeshes.size());
+
+            for (const nri::StaticSubmesh& submesh : staticMesh.Submeshes)
+            {
+                geometryBuffers.push_back(RtBLASGeometryBuffer{
+                    .Buffer = submesh.AttributeBuffers[nri::eAttributeType_Position],
+                    .VertexStride = static_cast<UINT>(submesh.AttributeStrides[nri::eAttributeType_Position]),
+                    .VertexOffset = 0,
+                    .NumVertices = submesh.NumVertices,
+                });
+            }
+            blas = CreateBLAS(geometryBuffers);
+
+            // Create TLAS
+            // TODO: Temporarily hardcoded instance transformations
+            static std::array InstanceTransformations = {
+                Mat4()
+            };
+
+            std::vector<RtTLASInstanceBuffer> instanceBuffers;
+            instanceBuffers.reserve(InstanceTransformations.size()); // N instances
+
+            for (size_t instanceID = 0; instanceID < InstanceTransformations.size(); ++instanceID)
+            {
+                instanceBuffers.push_back(RtTLASInstanceBuffer{
+                    .ASBuffer = blas.ASBuffer,
+                    .Transformation = InstanceTransformations[instanceID],
+                });
+            }
+            tlas = CreateTLAS(instanceBuffers);
+        }
+        nri::ThrowIfFailed(m_commandList->Close());
+
+        ID3D12CommandList* pCommandList = m_commandList.Get();
+        ID3D12CommandQueue* queue = device.GetCommandQueue(nri::eCommandContextType_Graphics);
+        UINT fenceValue = m_fenceValue++;
+
+        // This stuff breaks -> idk why but buffers seem to be fine
+        queue->ExecuteCommandLists(1, &pCommandList);
+        queue->Signal(m_accelerationStructFence.Get(), fenceValue);
+        {
+            HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
+            NEB_ASSERT(fenceEvent, "Failed to create HANDLE for event");
+
+            // Wait until the fence is completed.
+            nri::ThrowIfFailed(m_accelerationStructFence->SetEventOnCompletion(fenceValue, fenceEvent));
+            WaitForSingleObject(fenceEvent, INFINITE);
+        }
+
+        commandAllocatorPool.DiscardAllocator(commandAllocator, m_accelerationStructFence.Get(), fenceValue);
+
+        // Member assignments
+        m_tlas = tlas;
+        return true;
     }
 
 }

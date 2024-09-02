@@ -15,6 +15,9 @@ namespace Neb::nri
     template<typename T>
     using D3D12Rc = Microsoft::WRL::ComPtr<T>;
 
+    template<typename T>
+    using Rc = D3D12Rc<T>; // just a shorter alias
+
     class HrException : public std::runtime_error
     {
     public:

@@ -4,6 +4,7 @@
 #include "core/Scene.h"
 #include "core/GLTFSceneImporter.h"
 #include "Renderer.h"
+#include "Raytracer.h"
 
 // TODO: VERY TEMP, just to switch between raytracing and plain raster
 #include "input/InputManager.h"
@@ -56,6 +57,9 @@ namespace Neb
 
         GLTFSceneImporter m_sceneImporter;
         Renderer m_renderer;
+
+        // TODO: Temporarily here, maybe remove to renderer
+        RtScene m_rtScene;
     };
 
 }
