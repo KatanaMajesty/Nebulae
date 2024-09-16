@@ -71,7 +71,7 @@ namespace Neb::nri
 
         ~ShaderCompiler() = default;
 
-        Shader CompileShader(const std::string& filepath,
+        Shader CompileShader(std::string_view filepath,
             const ShaderCompilationDesc& desc,
             EShaderCompilationFlags flags = eShaderCompilationFlag_None);
 

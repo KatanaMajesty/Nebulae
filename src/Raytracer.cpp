@@ -1,11 +1,17 @@
 #include "Raytracer.h"
 
+#include "Nebulae.h" // TODO: Remove
+
 #include "common/Assert.h"
 #include "common/Log.h"
+#include "core/Math.h"
 #include "nri/Device.h"
+#include "nri/Shader.h"
+#include "nri/ShaderCompiler.h"
 
 #include "DXRHelper/nv_helpers_dx12/BottomLevelASGenerator.h"
 #include "DXRHelper/nv_helpers_dx12/TopLevelASGenerator.h"
+#include "DXRHelper/nv_helpers_dx12/RaytracingPipelineGenerator.h"
 
 #include <array>
 
@@ -25,6 +31,8 @@ namespace Neb
         InitASFences();
 
         AddStaticMesh(staticMesh);
+
+        InitRaytracingPipeline();
         return true;
     }
 
@@ -87,9 +95,9 @@ namespace Neb
         blasGenerator.ComputeASBufferSizes(device.GetDevice(), false, &numScratchBytes, &numBLASBytes);
 
         D3D12MA::Allocator* allocator = device.GetResourceAllocator();
-        D3D12MA::ALLOCATION_DESC allocDesc = { 
+        D3D12MA::ALLOCATION_DESC allocDesc = {
             .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
-            .HeapType = D3D12_HEAP_TYPE_DEFAULT 
+            .HeapType = D3D12_HEAP_TYPE_DEFAULT
         };
 
         RtAccelerationStructureBuffers result;
@@ -97,7 +105,7 @@ namespace Neb
         // Create scratch buffer
         {
             D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numScratchBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-            
+
             // Ignoring InitialState D3D12_RESOURCE_STATE_UNORDERED_ACCESS.
             // Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
             nri::Rc<D3D12MA::Allocation> allocation;
@@ -258,6 +266,76 @@ namespace Neb
 
         // Member assignments
         m_tlas = tlas;
+        return true;
+    }
+
+    bool RtScene::InitRaytracingPipeline()
+    {
+        // Shader and root-signature related stuff
+        const std::filesystem::path shaderDirectory = Nebulae::Get().GetSpecification().AssetsDirectory / "shaders";
+        const std::filesystem::path shaderFilepath = shaderDirectory / "BasicRt.hlsl";
+
+        nri::ThrowIfFalse(this->InitRayGen(shaderFilepath));
+        nri::ThrowIfFalse(this->InitRayClosestHit(shaderFilepath));
+        nri::ThrowIfFalse(this->InitRayMiss(shaderFilepath));
+
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+
+        // TODO: RayTracingPipelineGenerator leaks memory (probably no cleanup for glocal/local root signature)
+        //      fix that either in their src or when moving away from Nvidia's helpers
+        nv_helpers_dx12::RayTracingPipelineGenerator pipelineGenerator(device.GetDevice());
+        pipelineGenerator.AddLibrary(m_rayGen.GetDxcBinaryBlob(), { L"RayGen" });
+        pipelineGenerator.AddLibrary(m_rayMiss.GetDxcBinaryBlob(), { L"Miss" });
+        pipelineGenerator.AddLibrary(m_rayClosestHit.GetDxcBinaryBlob(), { L"ClosestHit" });
+
+        pipelineGenerator.AddHitGroup(L"HitGroup", L"ClosestHit");
+
+        pipelineGenerator.AddRootSignatureAssociation(m_rayGenRS.GetD3D12RootSignature(), { L"RayGen" });
+        pipelineGenerator.AddRootSignatureAssociation(m_rayMissRS.GetD3D12RootSignature(), { L"Miss" });
+        pipelineGenerator.AddRootSignatureAssociation(m_rayClosestHitRS.GetD3D12RootSignature(), { L"HitGroup" });
+
+        pipelineGenerator.SetMaxPayloadSize(sizeof(Vec4));   // see HitInfo struct in BasicRt.hlsl
+        pipelineGenerator.SetMaxAttributeSize(sizeof(Vec2)); // see Attributes struct in BasicRt.hlsl
+        pipelineGenerator.SetMaxRecursionDepth(1);
+
+        m_rtPso = pipelineGenerator.Generate();
+        nri::ThrowIfFalse(m_rtPso != nullptr);
+        nri::ThrowIfFailed(m_rtPso->QueryInterface(m_rtPsoProperties.ReleaseAndGetAddressOf()));
+        return true;
+    }
+
+    bool RtScene::InitRayGen(const std::filesystem::path& filepath, nri::EShaderModel shaderModel)
+    {
+        m_rayGen = nri::ShaderCompiler().CompileShader(filepath.string(),
+            nri::ShaderCompilationDesc("RayGen", shaderModel, nri::EShaderType::RayGen));
+
+
+        D3D12_DESCRIPTOR_RANGE1 outputTextureUav = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0);
+        m_rayGenRS = nri::RootSignature()
+                         .AddParamDescriptorTable(std::array{ outputTextureUav })
+                         .AddParamSrv(0);
+
+        nri::ThrowIfFalse(m_rayGenRS.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE));
+        return true;
+    }
+
+    bool RtScene::InitRayClosestHit(const std::filesystem::path& filepath, nri::EShaderModel shaderModel)
+    {
+        m_rayClosestHit = nri::ShaderCompiler().CompileShader(filepath.string(),
+            nri::ShaderCompilationDesc("ClosestHit", shaderModel, nri::EShaderType::RayClosestHit));
+
+        m_rayClosestHitRS = nri::RootSignature();
+        nri::ThrowIfFalse(m_rayClosestHitRS.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE));
+        return true;
+    }
+
+    bool RtScene::InitRayMiss(const std::filesystem::path& filepath, nri::EShaderModel shaderModel)
+    {
+        m_rayMiss = nri::ShaderCompiler().CompileShader(filepath.string(),
+            nri::ShaderCompilationDesc("Miss", shaderModel, nri::EShaderType::RayMiss));
+
+        m_rayMissRS = nri::RootSignature();
+        nri::ThrowIfFalse(m_rayMissRS.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE));
         return true;
     }
 

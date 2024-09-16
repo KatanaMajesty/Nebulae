@@ -120,7 +120,7 @@ namespace Neb
             m_commandList->RSSetScissorRects(1, &scissorRect);
 
             // Setup PSO
-            m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+            m_commandList->SetGraphicsRootSignature(m_rootSignature.GetD3D12RootSignature());
             m_commandList->SetPipelineState(m_pipelineState.Get());
 
             static float rotationAngleY = 0.0f;
@@ -245,35 +245,13 @@ namespace Neb
             nri::ShaderCompilationDesc("PSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Pixel),
             nri::eShaderCompilationFlag_None);
 
-        std::vector<CD3DX12_ROOT_PARAMETER1> rootParams;
-        CD3DX12_ROOT_PARAMETER1& cbInstanceInfoRootParam = rootParams.emplace_back();
-        cbInstanceInfoRootParam.InitAsConstantBufferView(0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_VERTEX);
-
-        CD3DX12_ROOT_PARAMETER1& materialTexturesRootParam = rootParams.emplace_back();
         D3D12_DESCRIPTOR_RANGE1 materialTexturesRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, nri::eMaterialTextureType_NumTypes, 0, 0);
-        materialTexturesRootParam.InitAsDescriptorTable(1, &materialTexturesRange, D3D12_SHADER_VISIBILITY_PIXEL);
-
-        D3D12_STATIC_SAMPLER_DESC staticSampler = CD3DX12_STATIC_SAMPLER_DESC(0);
-
-        D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
-        rootSignatureDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
-        rootSignatureDesc.Desc_1_1 = D3D12_ROOT_SIGNATURE_DESC1{
-            .NumParameters = static_cast<UINT>(rootParams.size()),
-            .pParameters = rootParams.data(),
-            .NumStaticSamplers = 1,
-            .pStaticSamplers = &staticSampler,
-            .Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
-        };
-
-        // Neeeded to create root signature
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-
-        nri::D3D12Rc<ID3D10Blob> blob, errorBlob;
-        nri::ThrowIfFailed(D3D12SerializeVersionedRootSignature(&rootSignatureDesc, blob.GetAddressOf(), errorBlob.GetAddressOf()));
-        nri::ThrowIfFailed(device.GetDevice()->CreateRootSignature(0,
-            blob->GetBufferPointer(),
-            blob->GetBufferSize(),
-            IID_PPV_ARGS(m_rootSignature.ReleaseAndGetAddressOf())));
+        m_rootSignature = nri::RootSignature()
+                              .AddParamCbv(0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_VERTEX)
+                              .AddParamDescriptorTable(std::array{ materialTexturesRange }, D3D12_SHADER_VISIBILITY_PIXEL)
+                              .AddSampler(CD3DX12_STATIC_SAMPLER_DESC(0));
+        
+        nri::ThrowIfFailed(m_rootSignature.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT));
     }
 
     void Renderer::InitPipelineState()
@@ -281,7 +259,7 @@ namespace Neb
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.pRootSignature = m_rootSignature.Get();
+        psoDesc.pRootSignature = m_rootSignature.GetD3D12RootSignature();
         psoDesc.VS = m_vsBasic.GetBinaryBytecode();
         psoDesc.PS = m_psBasic.GetBinaryBytecode();
         psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);

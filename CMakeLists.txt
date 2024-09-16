@@ -37,6 +37,8 @@ target_sources(DXRNebulae PRIVATE
     "src/nri/Device.cpp"
     "src/nri/Device.h"
     "src/nri/Material.h"
+    "src/nri/RootSignature.cpp"
+    "src/nri/RootSignature.h"
     "src/nri/Shader.cpp"
     "src/nri/Shader.h"
     "src/nri/ShaderCompiler.cpp"

@@ -16,11 +16,20 @@ namespace Neb::nri
     // We do not use Hull, Domain, Geometry shaders here (at least for now)
     enum class EShaderType
     {
+        Unknown,
+
         Vertex,
         Amplification,
         Mesh,
         Pixel,
         Compute,
+
+        // Rt module -> WIP
+        // No support for intersection shaders (yet at least)
+        RayGen, // entry point
+        RayAnyHit,
+        RayClosestHit,
+        RayMiss,
     };
 
     // Shader is just bytecode + bytecode size. we use a tool called ShaderCompiler to get a Shader object
@@ -43,8 +52,12 @@ namespace Neb::nri
         LPVOID GetBinaryPointer() const;
         SIZE_T GetBinarySize() const;
 
+        IDxcBlob* GetDxcBinaryBlob() const { return m_binary.Get(); }
+        IDxcBlob* GetDxcPdbBlob() const { return m_pdb.Get(); }
+        IDxcBlob* GetDxcReflectionBlob() const { return m_reflection.Get(); }
+
     private:
-        EShaderType m_type;
+        EShaderType m_type = EShaderType::Unknown;
         D3D12Rc<IDxcBlob> m_binary;
         D3D12Rc<IDxcBlob> m_pdb;
         D3D12Rc<IDxcBlob> m_reflection;

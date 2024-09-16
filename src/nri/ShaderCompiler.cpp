@@ -17,7 +17,7 @@ namespace Neb::nri
         ThrowIfFailed(m_dxcUtils->CreateDefaultIncludeHandler(m_dxcIncludeHandler.GetAddressOf()));
     }
 
-    Shader ShaderCompiler::CompileShader(const std::string& filepath, const ShaderCompilationDesc& desc, EShaderCompilationFlags flags)
+    Shader ShaderCompiler::CompileShader(std::string_view filepath, const ShaderCompilationDesc& desc, EShaderCompilationFlags flags)
     {
         std::wstring wFilepath = std::wstring(filepath.begin(), filepath.end());
         std::wstring wEntryPoint = std::wstring(desc.EntryPoint.begin(), desc.EntryPoint.end());
@@ -47,6 +47,14 @@ namespace Neb::nri
             case EShaderType::Mesh: return L"ms_6_5";
             case EShaderType::Pixel: return L"ps_6_5";
             case EShaderType::Compute: return L"cs_6_5";
+
+            // raytracing shader types
+            case EShaderType::RayGen:
+            case EShaderType::RayAnyHit:
+            case EShaderType::RayClosestHit:
+            case EShaderType::RayMiss:
+                return L"lib_6_5"; // identified by [shader("shadertype")] attribute
+
             default: ThrowIfFalse(false); return L"";
             };
         };

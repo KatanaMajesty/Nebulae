@@ -4,6 +4,7 @@
 #include "common/Log.h"
 #include "input/InputManager.h"
 #include "nri/Device.h"
+#include "nri/nvidia/NsightAftermathCrashTracker.h"
 #include "Nebulae.h"
 
 #include "Win.h"

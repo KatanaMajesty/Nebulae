@@ -4,6 +4,7 @@
 
 #include "nri/ConstantBuffer.h"
 #include "nri/DepthStencilBuffer.h"
+#include "nri/RootSignature.h"
 #include "nri/Shader.h"
 #include "nri/ShaderCompiler.h"
 #include "nri/Swapchain.h"
@@ -54,7 +55,7 @@ namespace Neb
         nri::D3D12Rc<ID3D12GraphicsCommandList> m_commandList;
 
         void InitRootSignatureAndShaders();
-        nri::D3D12Rc<ID3D12RootSignature> m_rootSignature;
+        nri::RootSignature m_rootSignature;
         nri::Shader m_vsBasic;
         nri::Shader m_psBasic;
 

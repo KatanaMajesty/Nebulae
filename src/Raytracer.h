@@ -1,12 +1,14 @@
 #pragma once
 
 #include "core/Math.h"
+#include "nri/RootSignature.h"
+#include "nri/Shader.h"
 #include "nri/StaticMesh.h"
 #include "nri/stdafx.h"
-#include "nri/nvidia/NsightAftermathCrashTracker.h"
 
 #include <vector>
 #include <span>
+#include <filesystem>
 
 namespace Neb
 {
@@ -63,6 +65,22 @@ namespace Neb
         bool InitAccelerationStructure(const nri::StaticMesh& staticMesh);
 
         RtAccelerationStructureBuffers m_tlas;
+
+        bool InitRaytracingPipeline();
+        nri::Rc<ID3D12StateObject> m_rtPso;
+        nri::Rc<ID3D12StateObjectProperties> m_rtPsoProperties;
+
+        bool InitRayGen(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
+        nri::Shader m_rayGen;
+        nri::RootSignature m_rayGenRS;
+
+        bool InitRayClosestHit(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
+        nri::Shader m_rayClosestHit;
+        nri::RootSignature m_rayClosestHitRS;
+
+        bool InitRayMiss(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
+        nri::Shader m_rayMiss;
+        nri::RootSignature m_rayMissRS;
     };
 
 } // Neb namespace
