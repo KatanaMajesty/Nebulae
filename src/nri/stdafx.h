@@ -1,8 +1,12 @@
 #pragma once
 
-#include <stdexcept>
 
 #include "../Win.h"
+#include "common/Assert.h"
+
+#include <stdexcept>
+#include <string_view>
+#include <format>
 
 #include <wrl/client.h>
 #include <dxgi1_6.h>
@@ -22,37 +26,68 @@ namespace Neb::nri
     {
     public:
         HrException(HRESULT hr)
-            : std::runtime_error(HrToString(hr))
-            , m_hr(hr)
+            : std::runtime_error(std::format("HRESULT of {:x}", static_cast<UINT>(hr)))
         {
         }
-
-        HRESULT Error() const { return m_hr; }
-
-    private:
-        std::string HrToString(HRESULT hr)
+        HrException(HRESULT hr, std::string_view message)
+            : std::runtime_error(std::format("HRESULT of {:x} -> {}", static_cast<UINT>(hr), message))
         {
-            char s_str[64] = {};
-            sprintf_s(s_str, "HRESULT of 0x%08X", static_cast<UINT>(hr));
-            return s_str;
         }
-
-        const HRESULT m_hr;
     };
+
+    template<typename... Args>
+    inline void ThrowIfFailed(HRESULT hr, const std::format_string<Args...> fmt, Args&&... args)
+    {
+        if (FAILED(hr))
+        {
+            NEB_ASSERT(false, fmt, std::forward<Args>(args)...);
+            throw HrException(hr, std::format(fmt, std::forward<Args>(args)...));
+        }
+    }
+
+    inline void ThrowIfFailed(HRESULT hr, std::string_view message)
+    {
+        if (FAILED(hr))
+        {
+            NEB_ASSERT(false, message);
+            throw HrException(hr, message);
+        }
+    }
 
     inline void ThrowIfFailed(HRESULT hr)
     {
         if (FAILED(hr))
         {
+            NEB_ASSERT(false);
             throw HrException(hr);
         }
     }
 
-    inline void ThrowIfFalse(BOOL r)
+    template<typename... Args>
+    inline void ThrowIfFalse(BOOL result, const std::format_string<Args...> fmt, Args&&... args)
     {
-        if (r == FALSE)
+        if (result == FALSE)
         {
-            throw HrException(E_FAIL);
+            NEB_ASSERT(false, fmt, std::forward<Args>(args)...);
+            throw HrException(ERROR_ASSERTION_FAILURE, std::format(fmt, std::forward<Args>(args)...));
+        }
+    }
+
+    inline void ThrowIfFalse(BOOL result, std::string_view message)
+    {
+        if (result == FALSE)
+        {
+            NEB_ASSERT(false, message);
+            throw HrException(ERROR_ASSERTION_FAILURE, message);
+        }
+    }
+
+    inline void ThrowIfFalse(BOOL result)
+    {
+        if (result == FALSE)
+        {
+            NEB_ASSERT(false);
+            throw HrException(ERROR_ASSERTION_FAILURE);
         }
     }
 

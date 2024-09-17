@@ -30,7 +30,6 @@ namespace Neb
         }
 
         m_sceneImporter.Clear();
-
         nri::ThrowIfFalse(m_sceneImporter.ImportScenesFromFile(appSpec.AssetsDirectory / "DamagedHelmet" / "DamagedHelmet.gltf"));
 
         // TODO: This is currently hardcoded as we know that very first scene will be used for rendering, thus we register its callbacks
@@ -46,9 +45,12 @@ namespace Neb
             keyboard.RegisterCallback<Neb::KeyboardEvent_KeyInteraction>(&Neb::Nebulae::OnKeyInteraction, this);
         }
 
-        // TODO: Temporary raytracing stuff
-        NEB_ASSERT(!scene->StaticMeshes.empty(), "Cannot be empty!");
-        nri::ThrowIfFalse(m_rtScene.InitForStaticMesh(scene->StaticMeshes.front()));
+        if (!m_renderer.InitScene(scene))
+        {
+            NEB_ASSERT(false, "Failed to initialize ray traced scene");
+            NEB_LOG_ERROR("Nebulae -> Failed to init ray traced scene");
+            return false;
+        }
 
         // At the very end begin the time watch
         m_timeWatch.Begin();
@@ -59,8 +61,6 @@ namespace Neb
     void Nebulae::Render()
     {
         NEB_ASSERT(IsInitialized(), "Nebulae is not initialized");
-        if (m_sceneImporter.ImportedScenes.empty())
-            return;
 
         SecondsF32 elapsed = m_timeWatch.Elapsed<SecondsF32>();
         const float timestep = (elapsed - m_lastFrameSeconds).count();
@@ -76,8 +76,7 @@ namespace Neb
 
         secondsSinceLastFps += timestep;
 
-        Scene* scene = m_sceneImporter.ImportedScenes.front().get();
-        m_renderer.RenderScene(timestep, scene);
+        m_renderer.RenderScene(timestep);
     }
 
     void Nebulae::Resize(UINT width, UINT height)

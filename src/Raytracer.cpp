@@ -8,6 +8,7 @@
 #include "nri/Device.h"
 #include "nri/Shader.h"
 #include "nri/ShaderCompiler.h"
+#include "nri/StaticMesh.h"
 
 #include "DXRHelper/nv_helpers_dx12/BottomLevelASGenerator.h"
 #include "DXRHelper/nv_helpers_dx12/TopLevelASGenerator.h"
@@ -17,11 +18,14 @@
 
 namespace Neb
 {
-
-    bool RtScene::InitForStaticMesh(const nri::StaticMesh& staticMesh)
+    BOOL RtScene::InitForScene(UINT width, UINT height, Scene* scene)
     {
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-        if (device.GetCapabilities().RaytracingSupportTier == nri::ESupportTier_Raytracing::NotSupported)
+        NEB_ASSERT(scene, "Scene should be a valid pointer");
+        NEB_ASSERT(width != 0 && height != 0, "Width and height should be valid!");
+        m_scene = scene;
+
+        // Very first step is to check for device compatibility
+        if (nri::NRIDevice::Get().GetCapabilities().RaytracingSupportTier == nri::ESupportTier_Raytracing::NotSupported)
         {
             NEB_LOG_ERROR("Ray tracing is not supported on this device!");
             return false;
@@ -30,10 +34,28 @@ namespace Neb
         InitCommandList();
         InitASFences();
 
-        AddStaticMesh(staticMesh);
-
-        InitRaytracingPipeline();
+//#define BETTER_SCENE_SUPPORT
+#if defined(BETTER_SCENE_SUPPORT)
+        for (const nri::StaticMesh& mesh : m_scene->StaticMeshes)
+            AddStaticMesh(mesh);
+#else
+        NEB_ASSERT(m_scene->StaticMeshes.size() == 1, "No support for more than 1 static mesh currently!");
+        AddStaticMesh(m_scene->StaticMeshes.front());
+#endif // defined(BETTER_SCENE_SUPPORT)
+    
+        nri::ThrowIfFalse(InitRaytracingPipeline(), "Failed to initialize ray tracing pipeline");
+        nri::ThrowIfFalse(InitResourcesAndDescriptors(width, height), "Failed to initialize resources or descriptors");
         return true;
+    }
+
+    void RtScene::WaitForGpuContext()
+    {
+        WaitForFenceCompletion();
+    }
+
+    void RtScene::Resize(UINT width, UINT height)
+    {
+        nri::ThrowIfFalse(InitResourcesAndDescriptors(width, height), "Failed to initialize resources or descriptors");
     }
 
     void RtScene::AddStaticMesh(const nri::StaticMesh& staticMesh)
@@ -45,6 +67,12 @@ namespace Neb
         }
 
         nri::ThrowIfFalse(InitAccelerationStructure(staticMesh));
+    }
+
+    void RtScene::NextFrame()
+    {
+        WaitForGpuContext();
+        ++m_fenceValue;
     }
 
     void RtScene::InitCommandList()
@@ -70,7 +98,23 @@ namespace Neb
         nri::ThrowIfFailed(nri::NRIDevice::Get().GetDevice()->CreateFence(
             m_fenceValue,
             D3D12_FENCE_FLAG_NONE,
-            IID_PPV_ARGS(m_accelerationStructFence.ReleaseAndGetAddressOf())));
+            IID_PPV_ARGS(m_ASFence.ReleaseAndGetAddressOf())));
+    }
+
+    void RtScene::WaitForFenceCompletion()
+    {
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+
+        UINT64 fenceValue = m_fenceValue;
+        if (m_ASFence->GetCompletedValue() < fenceValue)
+        {
+            HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
+            NEB_ASSERT(fenceEvent, "Failed to create HANDLE for event");
+
+            // Wait until the fence is completed.
+            nri::ThrowIfFailed(m_ASFence->SetEventOnCompletion(fenceValue, fenceEvent));
+            WaitForSingleObject(fenceEvent, INFINITE);
+        }
     }
 
     RtAccelerationStructureBuffers RtScene::CreateBLAS(std::span<const RtBLASGeometryBuffer> geometryBuffers)
@@ -124,15 +168,6 @@ namespace Neb
                 allocation.GetAddressOf(),
                 IID_PPV_ARGS(result.ASBuffer.GetAddressOf())));
         }
-
-        // TODO: Figure out do we need to add transition to D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE for vertex buffer?
-        /*std::array barriers = {
-            CD3DX12_RESOURCE_BARRIER::Transition(backbuffer, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_RENDER_TARGET),
-            CD3DX12_RESOURCE_BARRIER::Transition(
-                m_depthStencilBuffer.GetBufferResource(),
-                D3D12_RESOURCE_STATE_COMMON,
-                D3D12_RESOURCE_STATE_DEPTH_WRITE),
-        }; */
 
         blasGenerator.Generate(m_commandList.Get(), result.ScratchBuffer.Get(), result.ASBuffer.Get());
         return result;
@@ -201,7 +236,7 @@ namespace Neb
         return result;
     }
 
-    bool RtScene::InitAccelerationStructure(const nri::StaticMesh& staticMesh)
+    BOOL RtScene::InitAccelerationStructure(const nri::StaticMesh& staticMesh)
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
         nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
@@ -248,28 +283,22 @@ namespace Neb
 
         ID3D12CommandList* pCommandList = m_commandList.Get();
         ID3D12CommandQueue* queue = device.GetCommandQueue(nri::eCommandContextType_Graphics);
-        UINT fenceValue = m_fenceValue++;
+        UINT fenceValue = m_fenceValue;
 
         // This stuff breaks -> idk why but buffers seem to be fine
         queue->ExecuteCommandLists(1, &pCommandList);
-        queue->Signal(m_accelerationStructFence.Get(), fenceValue);
+        queue->Signal(m_ASFence.Get(), fenceValue);
         {
-            HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
-            NEB_ASSERT(fenceEvent, "Failed to create HANDLE for event");
-
-            // Wait until the fence is completed.
-            nri::ThrowIfFailed(m_accelerationStructFence->SetEventOnCompletion(fenceValue, fenceEvent));
-            WaitForSingleObject(fenceEvent, INFINITE);
+            WaitForFenceCompletion();
         }
-
-        commandAllocatorPool.DiscardAllocator(commandAllocator, m_accelerationStructFence.Get(), fenceValue);
+        commandAllocatorPool.DiscardAllocator(commandAllocator, m_ASFence.Get(), fenceValue);
 
         // Member assignments
         m_tlas = tlas;
         return true;
     }
 
-    bool RtScene::InitRaytracingPipeline()
+    BOOL RtScene::InitRaytracingPipeline()
     {
         // Shader and root-signature related stuff
         const std::filesystem::path shaderDirectory = Nebulae::Get().GetSpecification().AssetsDirectory / "shaders";
@@ -304,7 +333,7 @@ namespace Neb
         return true;
     }
 
-    bool RtScene::InitRayGen(const std::filesystem::path& filepath, nri::EShaderModel shaderModel)
+    BOOL RtScene::InitRayGen(const std::filesystem::path& filepath, nri::EShaderModel shaderModel)
     {
         m_rayGen = nri::ShaderCompiler().CompileShader(filepath.string(),
             nri::ShaderCompilationDesc("RayGen", shaderModel, nri::EShaderType::RayGen));
@@ -319,7 +348,7 @@ namespace Neb
         return true;
     }
 
-    bool RtScene::InitRayClosestHit(const std::filesystem::path& filepath, nri::EShaderModel shaderModel)
+    BOOL RtScene::InitRayClosestHit(const std::filesystem::path& filepath, nri::EShaderModel shaderModel)
     {
         m_rayClosestHit = nri::ShaderCompiler().CompileShader(filepath.string(),
             nri::ShaderCompilationDesc("ClosestHit", shaderModel, nri::EShaderType::RayClosestHit));
@@ -329,13 +358,67 @@ namespace Neb
         return true;
     }
 
-    bool RtScene::InitRayMiss(const std::filesystem::path& filepath, nri::EShaderModel shaderModel)
+    BOOL RtScene::InitRayMiss(const std::filesystem::path& filepath, nri::EShaderModel shaderModel)
     {
         m_rayMiss = nri::ShaderCompiler().CompileShader(filepath.string(),
             nri::ShaderCompilationDesc("Miss", shaderModel, nri::EShaderType::RayMiss));
 
         m_rayMissRS = nri::RootSignature();
         nri::ThrowIfFalse(m_rayMissRS.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE));
+        return true;
+    }
+
+    BOOL RtScene::InitResourcesAndDescriptors(UINT width, UINT height)
+    {
+        if (!InitResources(width, height))
+        {
+            NEB_LOG_ERROR("Failed to initialize ray tracing resources");
+            return false;
+        }
+
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        m_rtDescriptors = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptors(eDescriptorSlot_NumSlots);
+
+        // Allocate UAV for output buffer
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+        uavDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        uavDesc.Texture2D = D3D12_TEX2D_UAV{
+            .MipSlice = 0,
+            .PlaneSlice = 0,
+        };
+        device.GetDevice()->CreateUnorderedAccessView(m_outputBuffer.Get(), nullptr, &uavDesc, m_rtDescriptors.CpuAt(eDescriptorSlot_OutputBufferUav));
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.RaytracingAccelerationStructure = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_SRV{
+            .Location = m_tlas.ASBuffer->GetGPUVirtualAddress()
+        };
+        device.GetDevice()->CreateShaderResourceView(nullptr, &srvDesc, m_rtDescriptors.CpuAt(eDescriptorSlot_TlasSrv));
+
+        return true;
+    }
+
+    BOOL RtScene::InitResources(UINT width, UINT height)
+    {
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+
+        D3D12MA::Allocator* allocator = device.GetResourceAllocator();
+        D3D12MA::ALLOCATION_DESC allocDesc = {
+            .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
+            .HeapType = D3D12_HEAP_TYPE_DEFAULT
+        };
+        D3D12_RESOURCE_DESC outputBufferDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, width, height);
+        outputBufferDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS; // This is UAV, remember?
+
+        nri::Rc<D3D12MA::Allocation> alloc;
+        nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &outputBufferDesc, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                               nullptr, alloc.GetAddressOf(),
+                               IID_PPV_ARGS(m_outputBuffer.ReleaseAndGetAddressOf())),
+            "Failed to create output buffer for ray tracing with {}x{} dimensions", width, height);
+
         return true;
     }
 

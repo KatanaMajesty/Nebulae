@@ -1,9 +1,12 @@
 #pragma once
+#pragma once
+#pragma once
 
 #include "core/Math.h"
+#include "core/Scene.h"
+#include "nri/DescriptorHeapAllocation.h"
 #include "nri/RootSignature.h"
 #include "nri/Shader.h"
-#include "nri/StaticMesh.h"
 #include "nri/stdafx.h"
 
 #include <vector>
@@ -45,42 +48,62 @@ namespace Neb
     public:
         RtScene() = default;
 
-        bool InitForStaticMesh(const nri::StaticMesh& staticMesh);
+        BOOL InitForScene(UINT width, UINT height, Scene* scene);
+        void WaitForGpuContext(); // Effectively, blocks until all ray tracing operations are done
+        void Resize(UINT width, UINT height);
+
+        void Render();
 
     private:
+        Scene* m_scene = nullptr;
+
         // TODO: Currently only works with a single static mesh and basically is just a setter (kinda)
         //      add support for more static meshes
         void AddStaticMesh(const nri::StaticMesh& staticMesh);
+        void NextFrame();
 
         void InitCommandList();
         nri::Rc<ID3D12GraphicsCommandList4> m_commandList;
 
         void InitASFences();
-        nri::Rc<ID3D12Fence> m_accelerationStructFence;
+        void WaitForFenceCompletion(); // Effectively, blocks until all ray tracing operations are done
+        nri::Rc<ID3D12Fence> m_ASFence;
         UINT m_fenceValue = 0;
 
         RtAccelerationStructureBuffers CreateBLAS(std::span<const RtBLASGeometryBuffer> geometryBuffers);
         RtAccelerationStructureBuffers CreateTLAS(std::span<const RtTLASInstanceBuffer> instanceBuffers);
         // TODO: Only works with 1 TLAS -> support more in future
-        bool InitAccelerationStructure(const nri::StaticMesh& staticMesh);
+        BOOL InitAccelerationStructure(const nri::StaticMesh& staticMesh);
 
         RtAccelerationStructureBuffers m_tlas;
 
-        bool InitRaytracingPipeline();
+        BOOL InitRaytracingPipeline();
         nri::Rc<ID3D12StateObject> m_rtPso;
         nri::Rc<ID3D12StateObjectProperties> m_rtPsoProperties;
 
-        bool InitRayGen(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
+        BOOL InitRayGen(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
         nri::Shader m_rayGen;
         nri::RootSignature m_rayGenRS;
 
-        bool InitRayClosestHit(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
+        BOOL InitRayClosestHit(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
         nri::Shader m_rayClosestHit;
         nri::RootSignature m_rayClosestHitRS;
 
-        bool InitRayMiss(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
+        BOOL InitRayMiss(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
         nri::Shader m_rayMiss;
         nri::RootSignature m_rayMissRS;
+
+        BOOL InitResourcesAndDescriptors(UINT width, UINT height);
+        BOOL InitResources(UINT width, UINT height);
+        nri::Rc<ID3D12Resource> m_outputBuffer;
+
+        enum EDescriptorSlot
+        {
+            eDescriptorSlot_OutputBufferUav = 0,
+            eDescriptorSlot_TlasSrv,
+            eDescriptorSlot_NumSlots,
+        };
+        nri::DescriptorHeapAllocation m_rtDescriptors; // see EDescriptorSlot enum
     };
 
 } // Neb namespace

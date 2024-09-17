@@ -41,8 +41,23 @@ namespace Neb
         return TRUE;
     }
 
-    void Renderer::RenderScene(float timestep, Scene* scene)
+    BOOL Renderer::InitScene(Scene* scene)
     {
+        NEB_ASSERT(scene, "Invalid scene!");
+        m_scene = scene;
+
+        // Validate if swapchains extents are valid here
+        return m_rtScene.InitForScene(m_swapchain.GetWidth(), m_swapchain.GetHeight(), m_scene);
+    }
+
+    void Renderer::RenderScene(float timestep)
+    {
+        if (!m_scene)
+        {
+            NEB_LOG_WARN("No scene context provided for Renderer::RenderScene");
+            return;
+        }
+
         // Move to the next frame;
         UINT frameIndex = NextFrame();
 
@@ -53,7 +68,7 @@ namespace Neb
         // Reset with nullptr as initial state, not to be bothered
         nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
         {
-            PopulateCommandLists(frameIndex, timestep, scene);
+            PopulateCommandLists(frameIndex, timestep, m_scene);
         }
         nri::ThrowIfFailed(m_commandList->Close());
 
@@ -75,10 +90,13 @@ namespace Neb
 
         // Before resizing swapchain wait for all frames to finish rendering
         WaitForAllFrames();
-
-        // Handle the return result better
-        m_swapchain.Resize(width, height);
-        m_depthStencilBuffer.Resize(width, height);
+        m_rtScene.WaitForGpuContext(); // Wait for ray tracing to finish as it is executed on the same command queue
+        {
+            // Handle the return result better
+            m_swapchain.Resize(width, height);
+            m_depthStencilBuffer.Resize(width, height);
+            m_rtScene.Resize(width, height); // Finally resize the ray tracing scene
+        }
     }
 
     void Renderer::PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene)

@@ -29,8 +29,9 @@ namespace Neb
         static constexpr UINT NumInflightFrames = nri::Swapchain::NumBackbuffers;
 
         BOOL Init(HWND hwnd);
+        BOOL InitScene(Scene* scene);
 
-        void RenderScene(float timestep, Scene* scene);
+        void RenderScene(float timestep);
         void Resize(UINT width, UINT height);
 
         UINT GetWidth() const { return m_swapchain.GetWidth(); }
@@ -43,6 +44,8 @@ namespace Neb
         // returns  frame index of the next frame (as a swapchain's backbuffer index)
         UINT NextFrame();
         void WaitForAllFrames();
+
+        Scene* m_scene = nullptr;
 
         nri::ShaderCompiler m_shaderCompiler;
         nri::Swapchain m_swapchain;
@@ -64,6 +67,8 @@ namespace Neb
 
         void InitInstanceCb();
         nri::ConstantBuffer m_cbInstance;
+
+        RtScene m_rtScene;
     };
 
 }

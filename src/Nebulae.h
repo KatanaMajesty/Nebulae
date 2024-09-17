@@ -57,9 +57,6 @@ namespace Neb
 
         GLTFSceneImporter m_sceneImporter;
         Renderer m_renderer;
-
-        // TODO: Temporarily here, maybe remove to renderer
-        RtScene m_rtScene;
     };
 
 }
