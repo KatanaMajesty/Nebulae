@@ -294,7 +294,7 @@ namespace Neb
         commandAllocatorPool.DiscardAllocator(commandAllocator, m_ASFence.Get(), fenceValue);
 
         // Member assignments
-        m_tlas = tlas;
+        m_tlas = std::move(tlas);
         return true;
     }
 
