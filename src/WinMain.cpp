@@ -279,6 +279,9 @@ INT WINAPI WinMain(
         nebulae.Render();
     }
 
+    nebulae.Shutdown();
+
+    device.Deinit();
     Neb::nri::NvNsightAftermathCrashTracker::Get()->Destroy();
 
     UnregisterClass(lpClassName, hInstance);

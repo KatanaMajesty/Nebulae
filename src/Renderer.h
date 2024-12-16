@@ -32,10 +32,14 @@ namespace Neb
         BOOL InitScene(Scene* scene);
 
         void RenderScene(float timestep);
+        void RenderSceneRaytraced(float timestep);
         void Resize(UINT width, UINT height);
 
         UINT GetWidth() const { return m_swapchain.GetWidth(); }
         UINT GetHeight() const { return m_swapchain.GetHeight(); }
+
+        // synchronize all ongoing work, wait for its completion
+        void Shutdown();
 
     private:
         void PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene);
@@ -56,6 +60,13 @@ namespace Neb
 
         void InitCommandList();
         nri::D3D12Rc<ID3D12GraphicsCommandList> m_commandList;
+
+        enum ERendererRoots
+        {
+            eRendererRoots_InstanceInfo = 0,
+            eRendererRoots_MaterialTextures,
+            eRendererRoots_NumRoots,
+        };
 
         void InitRootSignatureAndShaders();
         nri::RootSignature m_rootSignature;

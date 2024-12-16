@@ -15,14 +15,25 @@ namespace Neb::nri
         InitPipeline();
     }
 
+    void NRIDevice::Deinit()
+    {
+        if (m_debugDevice)
+        {
+            D3D12_RLDO_FLAGS rldoFlags = D3D12_RLDO_DETAIL;
+            m_debugDevice->ReportLiveDeviceObjects(rldoFlags);
+        }
+    }
+
     // https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component#loadpipeline
     void NRIDevice::InitPipeline()
     {
+#if defined(NEB_DEBUG)
         // Enable the debug layer
         ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(m_debugInterface.ReleaseAndGetAddressOf())));
 
         m_debugInterface->SetEnableGPUBasedValidation(TRUE);
         m_debugInterface->EnableDebugLayer();
+#endif // defined(NEB_DEBUG)
 
         // Create the factory
         D3D12Rc<IDXGIFactory2> factory;
@@ -35,6 +46,11 @@ namespace Neb::nri
         D3D12Rc<ID3D12Device> device;
         ThrowIfFailed(D3D12CreateDevice(m_dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(device.GetAddressOf())));
         ThrowIfFailed(device->QueryInterface(IID_PPV_ARGS(m_device.ReleaseAndGetAddressOf())));
+
+#if defined(NEB_DEBUG)
+        ThrowIfFailed(m_device->QueryInterface(IID_PPV_ARGS(m_debugDevice.ReleaseAndGetAddressOf())), 
+            "Could not retrieve debug device, was D3D12GetDebugInterface call successful?");
+#endif // defined(NEBD_DEBUG)
 
         // Query device capabilities and record them into manager's capabilities struct
         m_capabilities = {};

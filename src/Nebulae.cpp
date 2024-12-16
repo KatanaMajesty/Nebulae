@@ -58,6 +58,11 @@ namespace Neb
         return m_isInitialized;
     }
 
+    void Nebulae::Shutdown()
+    {
+        m_renderer.Shutdown();
+    }
+
     void Nebulae::Render()
     {
         NEB_ASSERT(IsInitialized(), "Nebulae is not initialized");
@@ -76,7 +81,12 @@ namespace Neb
 
         secondsSinceLastFps += timestep;
 
-        m_renderer.RenderScene(timestep);
+        Keyboard& keyboard = InputManager::Get().GetKeyboard();
+
+        (keyboard.GetKeycodeState(eKeycode_F1) == eKeycodeState_Pressed ? 
+            m_renderer.RenderSceneRaytraced(timestep) : 
+            m_renderer.RenderScene(timestep)
+        );
     }
 
     void Nebulae::Resize(UINT width, UINT height)

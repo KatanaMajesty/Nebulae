@@ -507,9 +507,10 @@ namespace Neb
                     bufferView.byteLength - accessor.byteOffset);
 
                 // Store stride of an attribute as well (in bytes)
-                const UINT stride = accessor.ByteStride(bufferView);
-                NEB_ASSERT(stride != -1, "Invalid stride from buffer view"); // fail if invalid
+                const UINT stride = UINT(accessor.ByteStride(bufferView)); // may become uint_max
+                NEB_ASSERT(stride != UINT(-1), "Invalid stride from buffer view"); // fail if invalid
                 submesh.AttributeStrides[type] = stride;
+                submesh.AttributeOffsets[type] = bufferView.byteOffset + accessor.byteOffset;
 
                 nri::D3D12Rc<ID3D12Resource> buffer = m_GLTFBuffers[bufferView.buffer];
                 submesh.AttributeBuffers[type] = buffer;
@@ -532,6 +533,7 @@ namespace Neb
 
                 // Copy buffer info, we treat it as a byte-stream
                 submesh.IndicesStride = accessor.ByteStride(bufferView);
+                submesh.IndicesOffset = bufferView.byteOffset + accessor.byteOffset;
                 submesh.Indices.clear();
                 submesh.Indices.resize(bufferView.byteLength);
                 std::memcpy(

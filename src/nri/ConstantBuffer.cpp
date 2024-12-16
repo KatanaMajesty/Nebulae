@@ -30,6 +30,7 @@ namespace Neb::nri
             nullptr,
             m_bufferAllocation.ReleaseAndGetAddressOf(),
             __uuidof(nullptr), nullptr));
+        NEB_SET_HANDLE_NAME(m_bufferAllocation, "Constant buffer (Array of {} / {} bpb)", desc.NumBuffers, desc.NumBytesPerBuffer);
 
         m_mappings.clear();
         m_mappings.resize(desc.NumBuffers);

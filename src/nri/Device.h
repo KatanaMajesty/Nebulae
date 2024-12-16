@@ -51,6 +51,7 @@ namespace Neb::nri
 
         // Main member-function. Initializes the entire manager (device)
         void Init();
+        void Deinit();
 
         // Helper calls
         IDXGIFactory6* GetDxgiFactory() { return m_dxgiFactory.Get(); }
@@ -82,6 +83,7 @@ namespace Neb::nri
         BOOL QueryMostSuitableDeviceAdapter();
         D3D12Rc<IDXGIAdapter3> m_dxgiAdapter;
         D3D12Rc<ID3D12Device5> m_device;
+        D3D12Rc<ID3D12DebugDevice> m_debugDevice;
 
         NRIDeviceCapabilities m_capabilities = {};
         BOOL QueryDxgiFactoryTearingSupport() const;

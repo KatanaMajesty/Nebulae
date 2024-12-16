@@ -51,6 +51,7 @@ namespace Neb::nri
             D3D12_RESOURCE_STATE_COMMON,
             &optimizedClearValue, m_bufferAllocation.ReleaseAndGetAddressOf(),
             __uuidof(nullptr), nullptr));
+        NEB_SET_HANDLE_NAME(m_bufferAllocation, "Depth stencil buffer");
 
         D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = D3D12_DEPTH_STENCIL_VIEW_DESC{
             .Format = DXGI_FORMAT_D24_UNORM_S8_UINT,

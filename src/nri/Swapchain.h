@@ -25,6 +25,7 @@ namespace Neb::nri
         BOOL Resize(UINT width = 0, UINT height = 0);
         UINT GetWidth() const { return m_swapchainDesc.BufferDesc.Width; }
         UINT GetHeight() const { return m_swapchainDesc.BufferDesc.Height; }
+        DXGI_FORMAT GetFormat() const { return m_swapchainDesc.BufferDesc.Format; }
 
         void Present(BOOL vsync);
 

@@ -13,6 +13,8 @@
 #include <d3d12.h>
 #include <d3dx12.h>
 
+#define NEB_SET_HANDLE_NAME(t, str, ...) t->SetName(std::format(L##str, __VA_ARGS__).c_str())
+
 namespace Neb::nri
 {
 

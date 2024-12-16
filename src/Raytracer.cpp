@@ -14,15 +14,18 @@
 #include "DXRHelper/nv_helpers_dx12/TopLevelASGenerator.h"
 #include "DXRHelper/nv_helpers_dx12/RaytracingPipelineGenerator.h"
 
+// Helper to compute aligned buffer sizes
+#define ROUND_UP(v, powerOf2Alignment) (((v) + (powerOf2Alignment)-1) & ~((powerOf2Alignment)-1))
+
 #include <array>
 
 namespace Neb
 {
-    BOOL RtScene::InitForScene(UINT width, UINT height, Scene* scene)
+    BOOL RtScene::InitForScene(nri::Swapchain* swapchain, Scene* scene)
     {
         NEB_ASSERT(scene, "Scene should be a valid pointer");
-        NEB_ASSERT(width != 0 && height != 0, "Width and height should be valid!");
         m_scene = scene;
+        m_swapchain = swapchain;
 
         // Very first step is to check for device compatibility
         if (nri::NRIDevice::Get().GetCapabilities().RaytracingSupportTier == nri::ESupportTier_Raytracing::NotSupported)
@@ -34,7 +37,7 @@ namespace Neb
         InitCommandList();
         InitASFences();
 
-//#define BETTER_SCENE_SUPPORT
+// #define BETTER_SCENE_SUPPORT
 #if defined(BETTER_SCENE_SUPPORT)
         for (const nri::StaticMesh& mesh : m_scene->StaticMeshes)
             AddStaticMesh(mesh);
@@ -42,9 +45,10 @@ namespace Neb
         NEB_ASSERT(m_scene->StaticMeshes.size() == 1, "No support for more than 1 static mesh currently!");
         AddStaticMesh(m_scene->StaticMeshes.front());
 #endif // defined(BETTER_SCENE_SUPPORT)
-    
+
         nri::ThrowIfFalse(InitRaytracingPipeline(), "Failed to initialize ray tracing pipeline");
-        nri::ThrowIfFalse(InitResourcesAndDescriptors(width, height), "Failed to initialize resources or descriptors");
+        nri::ThrowIfFalse(InitResourcesAndDescriptors(m_swapchain->GetWidth(), m_swapchain->GetHeight()), "Failed to initialize resources or descriptors");
+        nri::ThrowIfFalse(InitShaderBindingTable(), "Failed to initialize SBT");
         return true;
     }
 
@@ -58,6 +62,117 @@ namespace Neb
         nri::ThrowIfFalse(InitResourcesAndDescriptors(width, height), "Failed to initialize resources or descriptors");
     }
 
+    void RtScene::Render(UINT frameIndex, ID3D12Fence* fence, UINT fenceValue)
+    {
+        // UINT frameIndex = NextFrame();
+
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
+        nri::D3D12Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
+
+        nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
+        {
+            PopulateCommandLists(frameIndex);
+        }
+        nri::ThrowIfFailed(m_commandList->Close(), "Couldn't close a command list");
+
+        ID3D12CommandList* pCommandLists[] = { m_commandList.Get() };
+        ID3D12CommandQueue* queue = device.GetCommandQueue(nri::eCommandContextType_Graphics);
+        queue->ExecuteCommandLists(_countof(pCommandLists), pCommandLists);
+        queue->Signal(fence, fenceValue);
+
+        m_swapchain->Present(FALSE);
+
+        commandAllocatorPool.DiscardAllocator(commandAllocator, fence, fenceValue);
+    }
+
+    void RtScene::PopulateCommandLists(UINT frameIndex)
+    {
+        NEB_ASSERT(m_scene && m_swapchain, "Scene and swapchain should be valid for command list population");
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+
+        std::array heaps = { device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).GetHeap() };
+        m_commandList->SetDescriptorHeaps(static_cast<UINT>(heaps.size()), heaps.data());
+
+        ID3D12Resource* backbuffer = m_swapchain->GetCurrentBackbuffer();
+        ID3D12Resource* outputBuffer = m_outputBuffer.Get();
+
+
+        // TODO: This code is duplicated from renderer.cpp, should be somehow removed
+        {
+            const Mat4& view = m_scene->Camera.UpdateLookAt();
+            const float aspectRatio = m_swapchain->GetWidth() / static_cast<float>(m_swapchain->GetHeight());
+            Mat4 projection = Mat4::CreatePerspectiveFieldOfView(ToRadians(60.0f), aspectRatio, 0.1f, 100.0f);
+            Mat4 viewProjInverse = Mat4(view * projection).Invert();
+
+            const Vec3 eye = m_scene->Camera.GetEyePos();
+
+            RtInstanceInfoCb cbInstanceInfo = RtInstanceInfoCb{
+                .ViewProjInverse = viewProjInverse,
+                .CameraWorldPos = Vec4(eye.x, eye.y, eye.z, 1.0f),
+            };
+
+            std::memcpy(m_cbInstanceInfo.GetMapping<RtInstanceInfoCb>(frameIndex), &cbInstanceInfo, sizeof(RtInstanceInfoCb));
+        }
+
+        m_commandList->SetComputeRootSignature(m_rtGlobalRS.GetD3D12RootSignature());
+        m_commandList->SetComputeRootConstantBufferView(0, m_cbInstanceInfo.GetGpuVirtualAddress(frameIndex));
+        m_commandList->SetComputeRootDescriptorTable(1, m_rtDescriptors.GpuAt(eDescriptorSlot_TlasSrv));
+
+        // todo: figure this stuff out
+
+        // Setup the raytracing task
+        D3D12_DISPATCH_RAYS_DESC desc = {};
+        // The layout of the SBT is as follows: ray generation shader, miss
+        // shaders, hit groups. As described in the CreateShaderBindingTable method,
+        // all SBT entries of a given type have the same size to allow a fixed stride.
+
+        // The ray generation shaders are always at the beginning of the SBT.
+        // important to do in order to align with currentTableOffset
+        uint32_t currentTableOffset = 0;
+        D3D12_GPU_VIRTUAL_ADDRESS sbtAddress = m_sbtBuffer->GetGPUVirtualAddress();
+        desc.RayGenerationShaderRecord.StartAddress = sbtAddress;
+        desc.RayGenerationShaderRecord.SizeInBytes = m_sbtGenerator.GetRayGenSectionSize();
+        currentTableOffset += desc.RayGenerationShaderRecord.SizeInBytes;
+
+        desc.MissShaderTable.StartAddress = ROUND_UP(sbtAddress + currentTableOffset, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+        desc.MissShaderTable.StrideInBytes = m_sbtGenerator.GetMissEntrySize();
+        desc.MissShaderTable.SizeInBytes = m_sbtGenerator.GetMissSectionSize();
+        currentTableOffset += desc.MissShaderTable.SizeInBytes;
+
+        desc.HitGroupTable.StartAddress = ROUND_UP(sbtAddress + currentTableOffset, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+        desc.HitGroupTable.StrideInBytes = m_sbtGenerator.GetHitGroupEntrySize();
+        desc.HitGroupTable.SizeInBytes = m_sbtGenerator.GetHitGroupSectionSize();
+        currentTableOffset += desc.HitGroupTable.SizeInBytes;
+
+        desc.Width = m_swapchain->GetWidth();
+        desc.Height = m_swapchain->GetHeight();
+        desc.Depth = 1;
+
+        m_commandList->SetPipelineState1(m_rtPso.Get());
+        m_commandList->DispatchRays(&desc);
+
+        // transition output buffer back into copy source
+        // copy output resources to swappchain as needed
+        {
+            std::array barriers = {
+                CD3DX12_RESOURCE_BARRIER::Transition(outputBuffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE),
+                CD3DX12_RESOURCE_BARRIER::Transition(backbuffer, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST)
+            };
+            m_commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
+            m_commandList->CopyResource(backbuffer, outputBuffer);
+        }
+
+        // transition resources back as needed
+        {
+            std::array barriers = {
+                CD3DX12_RESOURCE_BARRIER::Transition(outputBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+                CD3DX12_RESOURCE_BARRIER::Transition(backbuffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON),
+            };
+            m_commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
+        }
+    }
+
     void RtScene::AddStaticMesh(const nri::StaticMesh& staticMesh)
     {
         if (staticMesh.Submeshes.empty())
@@ -67,12 +182,6 @@ namespace Neb
         }
 
         nri::ThrowIfFalse(InitAccelerationStructure(staticMesh));
-    }
-
-    void RtScene::NextFrame()
-    {
-        WaitForGpuContext();
-        ++m_fenceValue;
     }
 
     void RtScene::InitCommandList()
@@ -103,8 +212,6 @@ namespace Neb
 
     void RtScene::WaitForFenceCompletion()
     {
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-
         UINT64 fenceValue = m_fenceValue;
         if (m_ASFence->GetCompletedValue() < fenceValue)
         {
@@ -124,9 +231,11 @@ namespace Neb
         for (const RtBLASGeometryBuffer& geometry : geometryBuffers)
         {
             NEB_ASSERT(geometry.VertexStride == sizeof(Vec3), "Only support for vertex stride of {}", sizeof(Vec3));
+            NEB_ASSERT(geometry.IndexStride == sizeof(uint16_t) || geometry.IndexStride == sizeof(uint32_t), "Incorrect index stride, should be either UINT16 or UINT32");
+            DXGI_FORMAT indexFormat = (geometry.IndexStride == sizeof(uint16_t)) ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
             blasGenerator.AddVertexBuffer(
-                geometry.Buffer.Get(),
-                geometry.VertexOffset, geometry.NumVertices, geometry.VertexStride,
+                geometry.PositionBuffer.Get(), geometry.VertexOffsetInBytes, geometry.NumVertices, geometry.VertexStride,
+                geometry.IndexBuffer.Get(), geometry.IndexOffsetInBytes, geometry.NumIndices, indexFormat,
                 nullptr, 0, // we are not using transform buffers in BLAS
                 true);
         }
@@ -232,7 +341,8 @@ namespace Neb
         tlasGenerator.Generate(m_commandList.Get(),
             result.ScratchBuffer.Get(),
             result.ASBuffer.Get(),
-            result.InstanceDescriptorBuffer.Get());
+            result.InstanceDescriptorBuffer.Get(), false, nullptr, 
+            D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE);
         return result;
     }
 
@@ -253,28 +363,42 @@ namespace Neb
             for (const nri::StaticSubmesh& submesh : staticMesh.Submeshes)
             {
                 geometryBuffers.push_back(RtBLASGeometryBuffer{
-                    .Buffer = submesh.AttributeBuffers[nri::eAttributeType_Position],
-                    .VertexStride = static_cast<UINT>(submesh.AttributeStrides[nri::eAttributeType_Position]),
-                    .VertexOffset = 0,
+                    // Position buffer data
+                    .PositionBuffer = submesh.AttributeBuffers[nri::eAttributeType_Position],
+                    .VertexStride = submesh.AttributeStrides[nri::eAttributeType_Position],
+                    .VertexOffsetInBytes = submesh.AttributeOffsets[nri::eAttributeType_Position],
                     .NumVertices = submesh.NumVertices,
-                });
+                    // Index buffer data (required for Nebulae)
+                    .IndexBuffer = submesh.IndexBuffer,
+                    .IndexStride = submesh.IndicesStride,
+                    .IndexOffsetInBytes = submesh.IndicesOffset,
+                    .NumIndices = submesh.NumIndices });
             }
             blas = CreateBLAS(geometryBuffers);
 
-            // Create TLAS
-            // TODO: Temporarily hardcoded instance transformations
-            static std::array InstanceTransformations = {
-                Mat4()
-            };
+            std::vector<Mat4> instanceTransformations;
+            {
+                // Was just copied from renderer.cpp => should be handled better honestly, stored in instance data and passed through scene interface
+                static const float rotationAngleY = 0.0f;
+                static const Vec3 rotationAngles = Vec3(ToRadians(90.0f), ToRadians(rotationAngleY), ToRadians(0.0f));
+
+                Mat4 translation = Mat4::CreateTranslation(Vec3(0.0f, 0.0f, 0.0f));
+                Mat4 rotation = Mat4::CreateFromYawPitchRoll(rotationAngles);
+                Mat4 scale = Mat4::CreateScale(Vec3(1.0f));
+
+                // TODO: expects row-major, providing column-major. I dont get it (DirectXMath operates in row-major)
+                Mat4 instanceToWorld = Mat4(scale * rotation * translation);
+                instanceTransformations.push_back(instanceToWorld.Transpose());
+            }
 
             std::vector<RtTLASInstanceBuffer> instanceBuffers;
-            instanceBuffers.reserve(InstanceTransformations.size()); // N instances
+            instanceBuffers.reserve(instanceTransformations.size()); // N instances
 
-            for (size_t instanceID = 0; instanceID < InstanceTransformations.size(); ++instanceID)
+            for (size_t instanceID = 0; instanceID < instanceTransformations.size(); ++instanceID)
             {
                 instanceBuffers.push_back(RtTLASInstanceBuffer{
                     .ASBuffer = blas.ASBuffer,
-                    .Transformation = InstanceTransformations[instanceID],
+                    .Transformation = instanceTransformations[instanceID],
                 });
             }
             tlas = CreateTLAS(instanceBuffers);
@@ -283,7 +407,7 @@ namespace Neb
 
         ID3D12CommandList* pCommandList = m_commandList.Get();
         ID3D12CommandQueue* queue = device.GetCommandQueue(nri::eCommandContextType_Graphics);
-        UINT fenceValue = m_fenceValue;
+        UINT fenceValue = ++m_fenceValue;
 
         // This stuff breaks -> idk why but buffers seem to be fine
         queue->ExecuteCommandLists(1, &pCommandList);
@@ -294,6 +418,7 @@ namespace Neb
         commandAllocatorPool.DiscardAllocator(commandAllocator, m_ASFence.Get(), fenceValue);
 
         // Member assignments
+        m_blas = std::move(blas);
         m_tlas = std::move(tlas);
         return true;
     }
@@ -323,11 +448,18 @@ namespace Neb
         pipelineGenerator.AddRootSignatureAssociation(m_rayMissRS.GetD3D12RootSignature(), { L"Miss" });
         pipelineGenerator.AddRootSignatureAssociation(m_rayClosestHitRS.GetD3D12RootSignature(), { L"HitGroup" });
 
-        pipelineGenerator.SetMaxPayloadSize(sizeof(Vec4));   // see HitInfo struct in BasicRt.hlsl
-        pipelineGenerator.SetMaxAttributeSize(sizeof(Vec2)); // see Attributes struct in BasicRt.hlsl
+        pipelineGenerator.SetMaxPayloadSize(4 * sizeof(Vec4));   // see HitInfo struct in BasicRt.hlsl
+        pipelineGenerator.SetMaxAttributeSize(2 * sizeof(Vec2)); // see Attributes struct in BasicRt.hlsl
         pipelineGenerator.SetMaxRecursionDepth(1);
 
-        m_rtPso = pipelineGenerator.Generate();
+        D3D12_DESCRIPTOR_RANGE1 tlasSrv = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+        m_rtGlobalRS = nri::RootSignature(2)
+                           .AddParamCbv(0, 0)
+                           .AddParamDescriptorTable(1, std::array{ tlasSrv });
+
+        nri::ThrowIfFalse(m_rtGlobalRS.Init(&device), "failed to init global rs for rt scene");
+
+        m_rtPso = pipelineGenerator.Generate(m_rtGlobalRS.GetD3D12RootSignature());
         nri::ThrowIfFalse(m_rtPso != nullptr);
         nri::ThrowIfFailed(m_rtPso->QueryInterface(m_rtPsoProperties.ReleaseAndGetAddressOf()));
         return true;
@@ -339,10 +471,9 @@ namespace Neb
             nri::ShaderCompilationDesc("RayGen", shaderModel, nri::EShaderType::RayGen));
 
 
-        D3D12_DESCRIPTOR_RANGE1 outputTextureUav = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0);
-        m_rayGenRS = nri::RootSignature()
-                         .AddParamDescriptorTable(std::array{ outputTextureUav })
-                         .AddParamSrv(0);
+        D3D12_DESCRIPTOR_RANGE1 outputTextureUav = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
+        m_rayGenRS = nri::RootSignature(eRaygenRoot_NumRoots)
+                         .AddParamDescriptorTable(eRaygenRoot_OutputUav, std::array{ outputTextureUav });
 
         nri::ThrowIfFalse(m_rayGenRS.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE));
         return true;
@@ -398,6 +529,8 @@ namespace Neb
         };
         device.GetDevice()->CreateShaderResourceView(nullptr, &srvDesc, m_rtDescriptors.CpuAt(eDescriptorSlot_TlasSrv));
 
+        InitInstanceInfoCb();
+
         return true;
     }
 
@@ -410,16 +543,69 @@ namespace Neb
             .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
             .HeapType = D3D12_HEAP_TYPE_DEFAULT
         };
-        D3D12_RESOURCE_DESC outputBufferDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, width, height);
+        D3D12_RESOURCE_DESC outputBufferDesc = CD3DX12_RESOURCE_DESC::Tex2D(m_swapchain->GetFormat(), width, height, 1, 1);
         outputBufferDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS; // This is UAV, remember?
 
         nri::Rc<D3D12MA::Allocation> alloc;
-        nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &outputBufferDesc, D3D12_RESOURCE_STATE_COPY_SOURCE,
+        nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &outputBufferDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                nullptr, alloc.GetAddressOf(),
                                IID_PPV_ARGS(m_outputBuffer.ReleaseAndGetAddressOf())),
             "Failed to create output buffer for ray tracing with {}x{} dimensions", width, height);
 
+        NEB_SET_HANDLE_NAME(m_outputBuffer, "RT Output buffer");
         return true;
+    }
+
+    void RtScene::InitInstanceInfoCb()
+    {
+        nri::ThrowIfFalse(m_cbInstanceInfo.Init(nri::ConstantBufferDesc{
+            .NumBuffers = Renderer::NumInflightFrames,
+            .NumBytesPerBuffer = sizeof(RtInstanceInfoCb) }));
+    }
+
+    BOOL RtScene::InitShaderBindingTable()
+    {
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+
+        // tlas goes right after output buffer in the heap
+        void* pRawDescriptor = reinterpret_cast<void*>(m_rtDescriptors.GpuAt(eDescriptorSlot_OutputBufferUav).ptr);
+
+        m_sbtGenerator.Reset();
+        m_sbtGenerator.AddRayGenerationProgram(L"RayGen", { pRawDescriptor });
+        m_sbtGenerator.AddMissProgram(L"Miss", {});
+        m_sbtGenerator.AddHitGroup(L"HitGroup", {});
+        const uint32_t sbtSize = m_sbtGenerator.ComputeSBTSize();
+
+        D3D12MA::Allocator* allocator = device.GetResourceAllocator();
+        D3D12MA::ALLOCATION_DESC allocDesc = { .HeapType = D3D12_HEAP_TYPE_UPLOAD };
+
+        // Create shader binding table buffer
+        {
+            D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(sbtSize);
+
+            // Ignoring InitialState D3D12_RESOURCE_STATE_UNORDERED_ACCESS.
+            // Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
+            nri::Rc<D3D12MA::Allocation> allocation;
+            nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+                nullptr,
+                allocation.GetAddressOf(),
+                IID_PPV_ARGS(m_sbtBuffer.ReleaseAndGetAddressOf())));
+        }
+
+        NEB_ASSERT(m_sbtBuffer, "Failed to create shader binding table buffer!");
+
+        // Compile the SBT from the shader and parameters info
+        try
+        {
+            m_sbtGenerator.Generate(m_sbtBuffer.Get(), m_rtPsoProperties.Get());
+        }
+        catch (std::logic_error& error)
+        {
+            NEB_LOG_ERROR("Failed to generate Shader Binding Table: {}", error.what());
+            return FALSE;
+        }
+
+        return TRUE;
     }
 
 }

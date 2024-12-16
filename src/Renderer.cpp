@@ -47,7 +47,11 @@ namespace Neb
         m_scene = scene;
 
         // Validate if swapchains extents are valid here
-        return m_rtScene.InitForScene(m_swapchain.GetWidth(), m_swapchain.GetHeight(), m_scene);
+        if (!m_rtScene.InitForScene(&m_swapchain, m_scene))
+        {
+            return false;
+        }
+        return true;
     }
 
     void Renderer::RenderScene(float timestep)
@@ -82,6 +86,14 @@ namespace Neb
         commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[frameIndex]);
     }
 
+    void Renderer::RenderSceneRaytraced(float timestep)
+    {
+        // Move to the next frame;
+        UINT frameIndex = NextFrame();
+
+        m_rtScene.Render(frameIndex, m_fence.Get(), m_fenceValues[frameIndex]);
+    }
+
     void Renderer::Resize(UINT width, UINT height)
     {
         // avoid reallocating everything for no reason
@@ -97,6 +109,14 @@ namespace Neb
             m_depthStencilBuffer.Resize(width, height);
             m_rtScene.Resize(width, height); // Finally resize the ray tracing scene
         }
+    }
+
+    void Renderer::Shutdown()
+    {
+        WaitForAllFrames();
+        m_rtScene.WaitForGpuContext();
+
+        m_swapchain = nri::Swapchain();
     }
 
     void Renderer::PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene)
@@ -160,7 +180,7 @@ namespace Neb
             };
 
             std::memcpy(m_cbInstance.GetMapping<CbInstanceInfo>(frameIndex), &cbInstanceInfo, sizeof(CbInstanceInfo));
-            m_commandList->SetGraphicsRootConstantBufferView(0, m_cbInstance.GetGpuVirtualAddress(frameIndex));
+            m_commandList->SetGraphicsRootConstantBufferView(eRendererRoots_InstanceInfo, m_cbInstance.GetGpuVirtualAddress(frameIndex));
 
             for (nri::StaticMesh& staticMesh : scene->StaticMeshes)
             {
@@ -174,7 +194,7 @@ namespace Neb
                     nri::StaticSubmesh& submesh = staticMesh.Submeshes[i];
                     nri::Material& material = staticMesh.SubmeshMaterials[i];
 
-                    m_commandList->SetGraphicsRootDescriptorTable(1, material.SrvRange.GpuAddress);
+                    m_commandList->SetGraphicsRootDescriptorTable(eRendererRoots_MaterialTextures, material.SrvRange.GpuAddress);
 
                     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                     m_commandList->IASetVertexBuffers(0, nri::eAttributeType_NumTypes, submesh.AttributeViews.data());
@@ -204,26 +224,15 @@ namespace Neb
 
         UINT64 currentFenceValue = m_fenceValues[m_frameIndex];
         m_frameIndex = m_swapchain.GetCurrentBackbufferIndex();
-
-        UINT64& nextFenceValue = m_fenceValues[m_frameIndex];
-        if (m_fence->GetCompletedValue() < nextFenceValue)
         {
-            HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
-            NEB_ASSERT(fenceEvent, "Failed to create HANDLE for event");
-
-            // Wait until the fence is completed.
-            nri::ThrowIfFailed(m_fence->SetEventOnCompletion(nextFenceValue, fenceEvent));
-            WaitForSingleObject(fenceEvent, INFINITE);
+            WaitForAllFrames();
         }
-
-        nextFenceValue = currentFenceValue + 1;
+        m_fenceValues[m_frameIndex] = currentFenceValue + 1;
         return m_frameIndex;
     }
 
     void Renderer::WaitForAllFrames()
     {
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-
         UINT64 fenceValue = m_fenceValues[m_frameIndex];
         if (m_fence->GetCompletedValue() < fenceValue)
         {
@@ -264,12 +273,12 @@ namespace Neb
             nri::eShaderCompilationFlag_None);
 
         D3D12_DESCRIPTOR_RANGE1 materialTexturesRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, nri::eMaterialTextureType_NumTypes, 0, 0);
-        m_rootSignature = nri::RootSignature()
-                              .AddParamCbv(0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_VERTEX)
-                              .AddParamDescriptorTable(std::array{ materialTexturesRange }, D3D12_SHADER_VISIBILITY_PIXEL)
-                              .AddSampler(CD3DX12_STATIC_SAMPLER_DESC(0));
+        m_rootSignature = nri::RootSignature(eRendererRoots_NumRoots, 1)
+                              .AddParamCbv(eRendererRoots_InstanceInfo, 0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_VERTEX)
+                              .AddParamDescriptorTable(eRendererRoots_MaterialTextures, std::array{ materialTexturesRange }, D3D12_SHADER_VISIBILITY_PIXEL)
+                              .AddStaticSampler(0, CD3DX12_STATIC_SAMPLER_DESC(0));
         
-        nri::ThrowIfFailed(m_rootSignature.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT));
+        nri::ThrowIfFalse(m_rootSignature.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT));
     }
 
     void Renderer::InitPipelineState()

@@ -32,6 +32,9 @@ namespace Neb
         bool Init(const AppSpec& appSpec);
         bool IsInitialized() const { return m_isInitialized; }
 
+        // sync with remaining work
+        void Shutdown();
+
         // TODO: Currently render just takes the first imported scene in GLTFSceneImporter, if any
         // this behavior should be expanded upon by allowing more control on the API, but the idea should
         // still be the same

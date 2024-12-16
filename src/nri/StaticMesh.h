@@ -24,16 +24,20 @@ namespace Neb::nri
     {
         // Decided to go for SoA instead AoS, because its natively in glTF and is easier to parse that way
         UINT NumVertices = 0;
+        // sometimes all the attributes are stored in the same buffer and thus AttributeBuffers will all point to the same address
+        // to determine correct offset into the buffer use AttributeOffsets and AttributeStrides
+        std::array<UINT, eAttributeType_NumTypes> AttributeStrides = {};
+        std::array<size_t, eAttributeType_NumTypes> AttributeOffsets = {}; // in bytes
         std::array<std::vector<std::byte>, eAttributeType_NumTypes> Attributes;
-        std::array<size_t, eAttributeType_NumTypes> AttributeStrides = {};
 
         std::array<D3D12Rc<ID3D12Resource>, eAttributeType_NumTypes> AttributeBuffers;
         std::array<D3D12_VERTEX_BUFFER_VIEW, eAttributeType_NumTypes> AttributeViews = {};
 
         // Indices may be in uint16_t or uint32_t - we handle both cases here
         UINT NumIndices = 0;
+        UINT IndicesStride = 0;
+        size_t IndicesOffset = 0; // in bytes
         std::vector<std::byte> Indices;
-        size_t IndicesStride = 0;
 
         D3D12Rc<ID3D12Resource> IndexBuffer;
         D3D12_INDEX_BUFFER_VIEW IBView = {};

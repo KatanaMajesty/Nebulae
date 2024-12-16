@@ -41,6 +41,8 @@ namespace Neb::nri
         for (UINT i = 0; i < NumBackbuffers; ++i)
         {
             ThrowIfFailed(m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].ReleaseAndGetAddressOf())));
+            NEB_SET_HANDLE_NAME(m_renderTargets[i], "Swapchain backbuffer {}", i);
+
             device.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews.CpuAt(i));
         }
 
@@ -74,6 +76,8 @@ namespace Neb::nri
         for (UINT i = 0; i < NumBackbuffers; ++i)
         {
             ThrowIfFailed(m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].GetAddressOf())));
+            NEB_SET_HANDLE_NAME(m_renderTargets[i], "Swapchain backbuffer {}", i);
+
             device.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews.CpuAt(i));
         }
 

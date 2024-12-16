@@ -1,13 +1,16 @@
 #pragma once
 #pragma once
-#pragma once
 
 #include "core/Math.h"
 #include "core/Scene.h"
+#include "nri/ConstantBuffer.h"
 #include "nri/DescriptorHeapAllocation.h"
 #include "nri/RootSignature.h"
 #include "nri/Shader.h"
+#include "nri/Swapchain.h"
 #include "nri/stdafx.h"
+
+#include "DXRHelper/nv_helpers_dx12/ShaderBindingTableGenerator.h"
 
 #include <vector>
 #include <span>
@@ -28,13 +31,25 @@ namespace Neb
         nri::Rc<ID3D12Resource> InstanceDescriptorBuffer;
     }; // RTAccelerationStructureBuffers struct
 
+    // All CBs require 256 alignment
+    struct alignas(256) RtInstanceInfoCb
+    {
+        Neb::Mat4 ViewProjInverse;
+        Neb::Vec4 CameraWorldPos;
+    };
+
     // Here we make an assumption that the stride of a vertex in the buffer is 3 * float3
     struct RtBLASGeometryBuffer
     {
-        nri::Rc<ID3D12Resource> Buffer;
+        nri::Rc<ID3D12Resource> PositionBuffer;
         UINT VertexStride = 0;
-        UINT VertexOffset = 0;
+        UINT64 VertexOffsetInBytes = 0;
         UINT NumVertices = 0;
+
+        nri::Rc<ID3D12Resource> IndexBuffer;
+        UINT IndexStride = 0;
+        UINT64 IndexOffsetInBytes = 0;
+        UINT NumIndices = 0; // assumed to be uint32_t indices
     }; // RtBLASGeometryBuffer struct
 
     struct RtTLASInstanceBuffer
@@ -48,19 +63,21 @@ namespace Neb
     public:
         RtScene() = default;
 
-        BOOL InitForScene(UINT width, UINT height, Scene* scene);
+        BOOL InitForScene(nri::Swapchain* swapchain, Scene* scene);
         void WaitForGpuContext(); // Effectively, blocks until all ray tracing operations are done
         void Resize(UINT width, UINT height);
 
-        void Render();
+        void Render(UINT frameIndex, ID3D12Fence* fence, UINT fenceValue);
 
     private:
+        void PopulateCommandLists(UINT frameIndex);
+
         Scene* m_scene = nullptr;
+        nri::Swapchain* m_swapchain = nullptr;
 
         // TODO: Currently only works with a single static mesh and basically is just a setter (kinda)
         //      add support for more static meshes
         void AddStaticMesh(const nri::StaticMesh& staticMesh);
-        void NextFrame();
 
         void InitCommandList();
         nri::Rc<ID3D12GraphicsCommandList4> m_commandList;
@@ -75,11 +92,20 @@ namespace Neb
         // TODO: Only works with 1 TLAS -> support more in future
         BOOL InitAccelerationStructure(const nri::StaticMesh& staticMesh);
 
+        RtAccelerationStructureBuffers m_blas;
         RtAccelerationStructureBuffers m_tlas;
 
         BOOL InitRaytracingPipeline();
+        nri::RootSignature m_rtGlobalRS;
         nri::Rc<ID3D12StateObject> m_rtPso;
         nri::Rc<ID3D12StateObjectProperties> m_rtPsoProperties;
+
+        enum ERaygenRoot
+        {
+            eRaygenRoot_OutputUav = 0,
+            //eRaygenRoot_TlasSrv,
+            eRaygenRoot_NumRoots,
+        };
 
         BOOL InitRayGen(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
         nri::Shader m_rayGen;
@@ -104,6 +130,14 @@ namespace Neb
             eDescriptorSlot_NumSlots,
         };
         nri::DescriptorHeapAllocation m_rtDescriptors; // see EDescriptorSlot enum
+
+        void InitInstanceInfoCb();
+        nri::ConstantBuffer m_cbInstanceInfo;
+
+        BOOL InitShaderBindingTable();
+        nv_helpers_dx12::ShaderBindingTableGenerator m_sbtGenerator;
+        nri::Rc<ID3D12Resource> m_sbtBuffer;
+
     };
 
 } // Neb namespace
