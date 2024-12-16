@@ -5,6 +5,12 @@ project(DXRNebulae LANGUAGES CXX)
 add_executable(DXRNebulae WIN32)
 set_property(TARGET DXRNebulae PROPERTY CXX_STANDARD 23)
 
+target_compile_definitions(DXRNebulae
+PUBLIC
+    $<$<CONFIG:Debug>:NEB_DEBUG>
+    $<$<CONFIG:Release>:NEB_RELEASE>
+)
+
 target_sources(DXRNebulae PRIVATE
     "src/common/Assert.h"
     "src/common/Defines.h"
