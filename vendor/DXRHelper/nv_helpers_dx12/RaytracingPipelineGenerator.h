@@ -120,7 +120,7 @@ public:
   void SetMaxRecursionDepth(UINT maxDepth);
 
   /// Compiles the raytracing state object
-  ID3D12StateObject* Generate();
+  ID3D12StateObject* Generate(ID3D12RootSignature* globalRootSignature);
 
 private:
   /// Storage for DXIL libraries and their exported symbols

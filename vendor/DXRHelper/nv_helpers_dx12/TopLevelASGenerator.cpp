@@ -156,9 +156,10 @@ void TopLevelASGenerator::Generate(
                                        // descriptors, has to be in upload heap
     bool updateOnly /*= false*/,       // If true, simply refit the existing
                                        // acceleration structure
-    ID3D12Resource* previousResult /*= nullptr*/ // Optional previous acceleration
-                                                 // structure, used if an iterative update
-                                                 // is requested
+    ID3D12Resource* previousResult /*= nullptr*/,   // Optional previous acceleration
+                                                    // structure, used if an iterative update
+                                                    // is requested
+    UINT instanceFlags                  
 )
 {
   // Copy the descriptors in the target descriptor buffer
@@ -187,10 +188,9 @@ void TopLevelASGenerator::Generate(
     instanceDescs[i].InstanceContributionToHitGroupIndex = m_instances[i].hitGroupIndex;
     // Instance flags, including backface culling, winding, etc - TODO: should
     // be accessible from outside
-    instanceDescs[i].Flags = D3D12_RAYTRACING_INSTANCE_FLAG_NONE;
+    instanceDescs[i].Flags = instanceFlags;
     // Instance transform matrix
-    DirectX::XMMATRIX m = XMMatrixTranspose(
-        m_instances[i].transform); // GLM is column major, the INSTANCE_DESC is row major
+    DirectX::XMMATRIX m = m_instances[i].transform; // GLM is column major, the INSTANCE_DESC is row major
     memcpy(instanceDescs[i].Transform, &m, sizeof(instanceDescs[i].Transform));
     // Get access to the bottom level
     instanceDescs[i].AccelerationStructure = m_instances[i].bottomLevelAS->GetGPUVirtualAddress();

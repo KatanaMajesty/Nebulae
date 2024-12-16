@@ -127,8 +127,9 @@ public:
       ID3D12Resource* descriptorsBuffer, /// Auxiliary result buffer containing the instance
                                          /// descriptors, has to be in upload heap
       bool updateOnly = false, /// If true, simply refit the existing acceleration structure
-      ID3D12Resource* previousResult = nullptr /// Optional previous acceleration structure, used
-                                               /// if an iterative update is requested
+      ID3D12Resource* previousResult = nullptr, /// Optional previous acceleration structure, used
+                                                /// if an iterative update is requested
+      UINT instanceFlags = D3D12_RAYTRACING_INSTANCE_FLAG_NONE
   );
 
 private:

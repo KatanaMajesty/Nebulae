@@ -118,13 +118,13 @@ void ShaderBindingTableGenerator::Generate(ID3D12Resource* sbtBuffer,
   // ray generation, then the miss shaders, and finally the set of hit groups
   uint32_t offset = 0;
 
-  offset = CopyShaderData(raytracingPipeline, pData, m_rayGen, m_rayGenEntrySize);
+  offset = ROUND_UP(CopyShaderData(raytracingPipeline, pData, m_rayGen, m_rayGenEntrySize), D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
   pData += offset;
 
-  offset = CopyShaderData(raytracingPipeline, pData, m_miss, m_missEntrySize);
+  offset = ROUND_UP(CopyShaderData(raytracingPipeline, pData, m_miss, m_missEntrySize), D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
   pData += offset;
 
-  offset = CopyShaderData(raytracingPipeline, pData, m_hitGroup, m_hitGroupEntrySize);
+  offset = ROUND_UP(CopyShaderData(raytracingPipeline, pData, m_hitGroup, m_hitGroupEntrySize), D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
 
   // Unmap the SBT
   sbtBuffer->Unmap(0, nullptr);
