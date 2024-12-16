@@ -59,14 +59,51 @@ namespace Neb
         }
     }
 
+    enum class ETraceCategory
+    {
+        Info,
+        Warning,
+        Error
+    };
+
+    template<typename... Args>
+    void Trace(ETraceCategory category, const std::format_string<Args...> fmt, Args&&... args)
+    {
+        switch (category)
+        {
+        case ETraceCategory::Info: Trace(Neb::EConsoleColor::Gray, fmt, std::forward<Args>(args)...); break;
+        case ETraceCategory::Warning: Trace(Neb::EConsoleColor::Yellow, fmt, std::forward<Args>(args)...); break;
+        case ETraceCategory::Error: Trace(Neb::EConsoleColor::Red, fmt, std::forward<Args>(args)...); break;
+        default: assert(false && "Undefined category");
+        }
+    }
+
+    template<typename... Args>
+    void TraceIf(bool expr, ETraceCategory category, const std::format_string<Args...> fmt, Args&&... args)
+    {
+        if (expr)
+        {
+            Trace(category, fmt, std::forward<Args>(args)...);
+        }
+    }
+
 } // Neb namespace
 
 #if defined(NEB_DEBUG)
-#define NEB_LOG_INFO(msg, ...) (Neb::Trace(Neb::EConsoleColor::Gray, msg, ##__VA_ARGS__))
-#define NEB_LOG_WARN(msg, ...) (Neb::Trace(Neb::EConsoleColor::Yellow, msg, ##__VA_ARGS__))
-#define NEB_LOG_ERROR(msg, ...) (Neb::Trace(Neb::EConsoleColor::Red, msg, ##__VA_ARGS__))
+#define NEB_LOG_INFO(msg, ...) (Neb::Trace(Neb::ETraceCategory::Info, msg, ##__VA_ARGS__))
+#define NEB_LOG_WARN(msg, ...) (Neb::Trace(Neb::ETraceCategory::Warning, msg, ##__VA_ARGS__))
+#define NEB_LOG_ERROR(msg, ...) (Neb::Trace(Neb::ETraceCategory::Error, msg, ##__VA_ARGS__))
+
+#define NEB_LOG_INFO_IF(expr, msg, ...) (Neb::TraceIf(expr, Neb::ETraceCategory::Info, msg, ##__VA_ARGS__))
+#define NEB_LOG_WARN_IF(expr, msg, ...) (Neb::TraceIf(expr, Neb::ETraceCategory::Warning, msg, ##__VA_ARGS__))
+#define NEB_LOG_ERROR_IF(expr, msg, ...) (Neb::TraceIf(expr, Neb::ETraceCategory::Error, msg, ##__VA_ARGS__))
 #else
 #define NEB_LOG_INFO(msg, ...)
 #define NEB_LOG_WARN(msg, ...)
 #define NEB_LOG_ERROR(msg, ...)
+
+#define NEB_LOG_INFO_IF(expr, msg, ...)
+#define NEB_LOG_WARN_IF(expr, msg, ...)
+#define NEB_LOG_ERROR_IF(expr, msg, ...)
 #endif
+
