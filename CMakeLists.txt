@@ -14,6 +14,7 @@ PUBLIC
 target_sources(DXRNebulae PRIVATE
     "src/common/Assert.h"
     "src/common/Defines.h"
+    "src/common/Log.cpp"
     "src/common/Log.h"
     "src/common/TimeWatch.h"
     "src/core/GLTFSceneImporter.cpp"
@@ -28,6 +29,8 @@ target_sources(DXRNebulae PRIVATE
     "src/input/Keyboard.h"
     "src/input/Mouse.cpp"
     "src/input/Mouse.h"
+    "src/nri/imgui/UiContext.cpp"
+    "src/nri/imgui/UiContext.h"
     "src/nri/nvidia/NsightAftermathCrashTracker.cpp"
     "src/nri/nvidia/NsightAftermathCrashTracker.h"
     "src/nri/nvidia/NsightAftermathHelpers.h"
@@ -101,6 +104,32 @@ target_sources(DXRNebulae PRIVATE
     "${NV_DXRHELPER_DIR}/nv_helpers_dx12/TopLevelASGenerator.h"
 )
 
+# ImGui sources
+set(IMGUI_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui")
+add_library(    imgui)
+target_sources( imgui PRIVATE
+    # Dx12 backend
+    "${IMGUI_SOURCE_DIR}/backends/imgui_impl_dx12.cpp"
+    "${IMGUI_SOURCE_DIR}/backends/imgui_impl_dx12.h"
+    "${IMGUI_SOURCE_DIR}/backends/imgui_impl_win32.cpp"
+    "${IMGUI_SOURCE_DIR}/backends/imgui_impl_win32.h"
+
+    # common
+    "${IMGUI_SOURCE_DIR}/imgui.cpp"
+    "${IMGUI_SOURCE_DIR}/imgui.h"
+    "${IMGUI_SOURCE_DIR}/imgui_demo.cpp"
+    "${IMGUI_SOURCE_DIR}/imgui_draw.cpp"
+    "${IMGUI_SOURCE_DIR}/imgui_internal.h"
+    "${IMGUI_SOURCE_DIR}/imgui_tables.cpp"
+    "${IMGUI_SOURCE_DIR}/imgui_widgets.cpp"
+    "${IMGUI_SOURCE_DIR}/imstb_rectpack.h"
+    "${IMGUI_SOURCE_DIR}/imstb_textedit.h"
+    "${IMGUI_SOURCE_DIR}/imstb_truetype.h"
+)
+# imgui header files are included relative to the imgui directory, thus add include dirs publicly (as nebulae also uses those headers)
+# regardles, encourage to include headers relative to vendor dir
+target_include_directories(imgui PUBLIC "${IMGUI_SOURCE_DIR}")
+
 target_include_directories(DXRNebulae PRIVATE 
     "src"
     "vendor"
@@ -112,6 +141,7 @@ target_link_libraries(DXRNebulae
     "dxgi.lib"
     "dxcompiler.lib"
     "GFSDK_Aftermath_Lib.x64.lib"
+    "imgui"
 )
 
 # Copy DLLs to the out path

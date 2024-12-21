@@ -691,7 +691,9 @@ namespace Neb
                 }
 
                 material.Textures[nri::eMaterialTextureType_Normal] = GetTextureFromGLTFScene(srcMaterial.normalTexture.index);
-                NEB_ASSERT(material.Textures[nri::eMaterialTextureType_Normal], "We require normal map");
+                // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes-overview
+                // When normals are not specified, client implementations MUST calculate flat normals and the provided tangents (if present) MUST be ignored.
+                NEB_LOG_WARN_IF(!material.Textures[nri::eMaterialTextureType_Normal], "Normal map was not specified for material {}", srcMaterial.name);
 
                 material.Textures[nri::eMaterialTextureType_RoughnessMetalness] = GetTextureFromGLTFScene(pbrMaterial.metallicRoughnessTexture.index);
                 if (!material.Textures[nri::eMaterialTextureType_RoughnessMetalness])

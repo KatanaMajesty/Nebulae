@@ -31,6 +31,7 @@ namespace Neb
 
         m_sceneImporter.Clear();
         nri::ThrowIfFalse(m_sceneImporter.ImportScenesFromFile(appSpec.AssetsDirectory / "DamagedHelmet" / "DamagedHelmet.gltf"));
+        //nri::ThrowIfFalse(m_sceneImporter.ImportScenesFromFile(appSpec.AssetsDirectory / "Sponza" / "Sponza.gltf"));
 
         // TODO: This is currently hardcoded as we know that very first scene will be used for rendering, thus we register its callbacks
         Neb::Scene* scene = m_sceneImporter.ImportedScenes.front().get();
@@ -45,7 +46,7 @@ namespace Neb
             keyboard.RegisterCallback<Neb::KeyboardEvent_KeyInteraction>(&Neb::Nebulae::OnKeyInteraction, this);
         }
 
-        if (!m_renderer.InitScene(scene))
+        if (!m_renderer.InitSceneContext(scene))
         {
             NEB_ASSERT(false, "Failed to initialize ray traced scene");
             NEB_LOG_ERROR("Nebulae -> Failed to init ray traced scene");

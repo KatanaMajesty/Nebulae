@@ -2,6 +2,7 @@
 
 #include "common/Assert.h"
 #include "common/Log.h"
+#include "nri/imgui/UiContext.h"
 #include "nri/Device.h"
 
 // TODO: Remove this when shader library is implemented.
@@ -14,9 +15,10 @@ namespace Neb
     BOOL Renderer::Init(HWND hwnd)
     {
         NEB_ASSERT(hwnd != NULL, "Window handle is null");
+        m_hwnd = hwnd;
 
         // Now initialize the swapchain
-        if (!m_swapchain.Init(hwnd))
+        if (!m_swapchain.Init(m_hwnd))
         {
             NEB_LOG_ERROR("Failed to initialize swapchain");
             return FALSE;
@@ -38,10 +40,19 @@ namespace Neb
         InitRootSignatureAndShaders();
         InitPipelineState();
         InitInstanceCb();
+
+        nri::UiContext::Get()->Init(nri::UiSpecification{
+            .handle = hwnd,
+            .device = &nri::NRIDevice::Get(),
+            .numInflightFrames = NumInflightFrames,
+            .renderTargetFormat = m_swapchain.GetFormat(),
+            .depthStencilFormat = m_depthStencilBuffer.GetFormat(),
+        });
+
         return TRUE;
     }
 
-    BOOL Renderer::InitScene(Scene* scene)
+    BOOL Renderer::InitSceneContext(Scene* scene)
     {
         NEB_ASSERT(scene, "Invalid scene!");
         m_scene = scene;
@@ -67,23 +78,22 @@ namespace Neb
 
         nri::NRIDevice& device = nri::NRIDevice::Get();
         nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
-        nri::D3D12Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
+        nri::Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
 
         // Reset with nullptr as initial state, not to be bothered
         nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
         {
+            nri::UiContext::Get()->BeginFrame();
             PopulateCommandLists(frameIndex, timestep, m_scene);
+            nri::UiContext::Get()->EndFrame();
+            nri::UiContext::Get()->SubmitCommands(frameIndex, m_commandList.Get(), &m_swapchain);
         }
         nri::ThrowIfFailed(m_commandList->Close());
 
-        ID3D12CommandList* pCommandLists[] = { m_commandList.Get() };
-        ID3D12CommandQueue* queue = device.GetCommandQueue(nri::eCommandContextType_Graphics);
-        queue->ExecuteCommandLists(_countof(pCommandLists), pCommandLists);
-        queue->Signal(m_fence.Get(), m_fenceValues[frameIndex]);
+        SubmitCommandList(nri::eCommandContextType_Graphics, m_commandList.Get(), m_fence.Get(), m_fenceValues[frameIndex]);
+        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[frameIndex]);
 
         m_swapchain.Present(FALSE);
-
-        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[frameIndex]);
     }
 
     void Renderer::RenderSceneRaytraced(float timestep)
@@ -113,16 +123,20 @@ namespace Neb
 
     void Renderer::Shutdown()
     {
-        WaitForAllFrames();
+        // TODO: check if rt scene sync is correct, I think it should have a separate fence and not share it with renderer
         m_rtScene.WaitForGpuContext();
+        WaitForAllFrames();
 
-        m_swapchain = nri::Swapchain();
+        nri::UiContext::Get()->Shutdown();
     }
 
     void Renderer::PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene)
     {
         NEB_ASSERT(m_commandList && scene, "Invalid populate context");
         nri::NRIDevice& device = nri::NRIDevice::Get();
+
+        bool v = true;
+        ImGui::ShowDemoWindow(&v);
 
         {
             std::array shaderVisibleHeaps = {
@@ -214,8 +228,16 @@ namespace Neb
                 };
                 m_commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
             }
-            
         }
+    }
+
+    void Renderer::SubmitCommandList(nri::ECommandContextType contextType, ID3D12CommandList* commandList, ID3D12Fence* fence, UINT fenceValue)
+    {
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        
+        ID3D12CommandQueue* queue = device.GetCommandQueue(contextType);
+        queue->ExecuteCommandLists(1, &commandList);
+        queue->Signal(fence, fenceValue);
     }
 
     UINT Renderer::NextFrame()
@@ -277,7 +299,7 @@ namespace Neb
                               .AddParamCbv(eRendererRoots_InstanceInfo, 0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_VERTEX)
                               .AddParamDescriptorTable(eRendererRoots_MaterialTextures, std::array{ materialTexturesRange }, D3D12_SHADER_VISIBILITY_PIXEL)
                               .AddStaticSampler(0, CD3DX12_STATIC_SAMPLER_DESC(0));
-        
+
         nri::ThrowIfFalse(m_rootSignature.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT));
     }
 

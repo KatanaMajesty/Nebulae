@@ -16,6 +16,10 @@ namespace Neb::nri
 
         DescriptorHeapAllocation AllocateDescriptors(UINT numDescriptors);
 
+        // Checks whether or not host/device address is valid for this descriptor heap
+        bool IsValidCPUDescriptorHandle(D3D12_CPU_DESCRIPTOR_HANDLE) const;
+        bool IsValidGPUDescriptorHandle(D3D12_GPU_DESCRIPTOR_HANDLE) const;
+
     private:
         D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandleForHeapStart() const { return m_heap->GetCPUDescriptorHandleForHeapStart(); }
         D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandleForHeapStart() const { return m_heap->GetGPUDescriptorHandleForHeapStart(); }

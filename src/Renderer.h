@@ -29,7 +29,7 @@ namespace Neb
         static constexpr UINT NumInflightFrames = nri::Swapchain::NumBackbuffers;
 
         BOOL Init(HWND hwnd);
-        BOOL InitScene(Scene* scene);
+        BOOL InitSceneContext(Scene* scene);
 
         void RenderScene(float timestep);
         void RenderSceneRaytraced(float timestep);
@@ -43,12 +43,14 @@ namespace Neb
 
     private:
         void PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene);
+        void SubmitCommandList(nri::ECommandContextType contextType, ID3D12CommandList* commandList, ID3D12Fence* fence, UINT fenceValue);
 
         // Synchronizes with in-flight, waits if needed
         // returns  frame index of the next frame (as a swapchain's backbuffer index)
         UINT NextFrame();
         void WaitForAllFrames();
 
+        HWND m_hwnd = nullptr;
         Scene* m_scene = nullptr;
 
         nri::ShaderCompiler m_shaderCompiler;

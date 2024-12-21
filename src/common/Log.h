@@ -4,6 +4,7 @@
 #include "Win.h"
 
 #include <iostream>
+#include <string_view>
 #include <print>
 #include <cassert>
 #include <mutex>
@@ -59,6 +60,8 @@ namespace Neb
         }
     }
 
+    void Trace(EConsoleColor color, std::string_view msg);
+
     enum class ETraceCategory
     {
         Info,
@@ -78,6 +81,8 @@ namespace Neb
         }
     }
 
+    void Trace(ETraceCategory category, std::string_view msg);
+
     template<typename... Args>
     void TraceIf(bool expr, ETraceCategory category, const std::format_string<Args...> fmt, Args&&... args)
     {
@@ -86,6 +91,8 @@ namespace Neb
             Trace(category, fmt, std::forward<Args>(args)...);
         }
     }
+
+    void TraceIf(bool expr, ETraceCategory category, std::string_view msg);
 
 } // Neb namespace
 

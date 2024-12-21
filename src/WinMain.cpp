@@ -5,10 +5,14 @@
 #include "input/InputManager.h"
 #include "nri/Device.h"
 #include "nri/nvidia/NsightAftermathCrashTracker.h"
+#include "nri/imgui/UiContext.h"
 #include "Nebulae.h"
 
 #include "Win.h"
 #include <windowsx.h> // For GET_X_LPARAM/GET_Y_LPARAM
+
+// to handle ImGui WinAPI proc
+#include <imgui/imgui.h>
 
 struct WIN32Console
 {
@@ -111,8 +115,12 @@ void InitInputMappings()
     keyMapping[VK_ESCAPE] = eKeycode_Esc;
 }
 
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
 LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+    Neb::nri::UiContext::Get()->HandleWin32Proc(hwnd, uMsg, wParam, lParam);
+
     Neb::Nebulae& nebulae = Neb::Nebulae::Get();
     switch (uMsg)
     {

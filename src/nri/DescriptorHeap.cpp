@@ -3,6 +3,8 @@
 #include "../common/Assert.h"
 #include "../common/Log.h"
 
+#include <type_traits>
+
 namespace Neb::nri
 {
 
@@ -37,6 +39,39 @@ namespace Neb::nri
             allocation.GpuAddress = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_heap->GetGPUDescriptorHandleForHeapStart(), beginIndex, m_incrementSize);
 
         return allocation;
+    }
+
+    template<typename T, typename... Types>
+    static constexpr bool IsAnyOf = (std::is_same_v<T, Types> || ...);
+
+    template<typename DescriptorHandle>
+    static bool IsOOBHandle(DescriptorHandle begin, DescriptorHandle end, DescriptorHandle handle)
+    {
+        return (handle.ptr < begin.ptr || handle.ptr >= end.ptr);
+    }
+
+    template<typename DescriptorHandle>
+    static bool IsValidHandle(DescriptorHandle begin, DescriptorHandle end, DescriptorHandle handle, UINT descriptorSize)
+    {
+        static_assert(IsAnyOf<DescriptorHandle, D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE>);
+
+        const bool isInBounds = !IsOOBHandle(begin, end, handle);
+        const bool correctAlignment = !static_cast<bool>((end.ptr - handle.ptr) % descriptorSize);
+        return isInBounds && correctAlignment;
+    }
+
+    bool DescriptorHeap::IsValidCPUDescriptorHandle(D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle) const
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE beginAddress = GetCPUDescriptorHandleForHeapStart();
+        D3D12_CPU_DESCRIPTOR_HANDLE endAddress = CD3DX12_CPU_DESCRIPTOR_HANDLE(beginAddress, m_desc.NumDescriptors, m_incrementSize);
+        return IsValidHandle(beginAddress, endAddress, cpuHandle, m_incrementSize);
+    }
+
+    bool DescriptorHeap::IsValidGPUDescriptorHandle(D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle) const
+    {
+        D3D12_GPU_DESCRIPTOR_HANDLE beginAddress = GetGPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE endAddress = CD3DX12_GPU_DESCRIPTOR_HANDLE(beginAddress, m_desc.NumDescriptors, m_incrementSize);
+        return IsValidHandle(beginAddress, endAddress, gpuHandle, m_incrementSize);
     }
 
 } // Neb::nri namespace

@@ -22,6 +22,12 @@ namespace Neb::nri
             D3D12_RLDO_FLAGS rldoFlags = D3D12_RLDO_DETAIL;
             m_debugDevice->ReportLiveDeviceObjects(rldoFlags);
         }
+
+        if (m_debugInfoQueue)
+        {
+            NEB_LOG_INFO("Unregistering validation layer message callback");
+            ThrowIfFailed(m_debugInfoQueue->UnregisterMessageCallback(m_debugCallbackID));
+        }
     }
 
     // https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component#loadpipeline
@@ -36,21 +42,18 @@ namespace Neb::nri
 #endif // defined(NEB_DEBUG)
 
         // Create the factory
-        D3D12Rc<IDXGIFactory2> factory;
+        Rc<IDXGIFactory2> factory;
         ThrowIfFailed(CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG, IID_PPV_ARGS(factory.GetAddressOf())));
         ThrowIfFailed(factory->QueryInterface(IID_PPV_ARGS(m_dxgiFactory.ReleaseAndGetAddressOf())));
 
         // Query appropriate dxgi adapter
         ThrowIfFalse(QueryMostSuitableDeviceAdapter());
 
-        D3D12Rc<ID3D12Device> device;
+        Rc<ID3D12Device> device;
         ThrowIfFailed(D3D12CreateDevice(m_dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(device.GetAddressOf())));
         ThrowIfFailed(device->QueryInterface(IID_PPV_ARGS(m_device.ReleaseAndGetAddressOf())));
 
-#if defined(NEB_DEBUG)
-        ThrowIfFailed(m_device->QueryInterface(IID_PPV_ARGS(m_debugDevice.ReleaseAndGetAddressOf())), 
-            "Could not retrieve debug device, was D3D12GetDebugInterface call successful?");
-#endif // defined(NEBD_DEBUG)
+        this->InitDebugDeviceContext();
 
         // Query device capabilities and record them into manager's capabilities struct
         m_capabilities = {};
@@ -80,7 +83,7 @@ namespace Neb::nri
         }
 
         // Passing nullptr as a parameter would just test the adapter for compatibility
-        D3D12Rc<ID3D12Device> device;
+        Rc<ID3D12Device> device;
         if (FAILED(D3D12CreateDevice(DxgiAdapter, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(device.GetAddressOf()))))
         {
             return FALSE;
@@ -113,6 +116,121 @@ namespace Neb::nri
         }
 
         return m_dxgiAdapter != NULL ? TRUE : FALSE;
+    }
+
+    namespace validation
+    {
+        static std::string_view GetMessageCategoryAsStr(D3D12_MESSAGE_CATEGORY category)
+        {
+            switch (category)
+            {
+            case D3D12_MESSAGE_CATEGORY_APPLICATION_DEFINED: return "APP_DEFINED";
+            case D3D12_MESSAGE_CATEGORY_MISCELLANEOUS: return "MISC";
+            case D3D12_MESSAGE_CATEGORY_INITIALIZATION: return "INIT";
+            case D3D12_MESSAGE_CATEGORY_CLEANUP: return "CLEANUP";
+            case D3D12_MESSAGE_CATEGORY_COMPILATION: return "COMPILATION";
+            case D3D12_MESSAGE_CATEGORY_STATE_CREATION: return "STATE_CREATION";
+            case D3D12_MESSAGE_CATEGORY_STATE_SETTING: return "STATE_SETTING";
+            case D3D12_MESSAGE_CATEGORY_STATE_GETTING: return "STATE_GETTING";
+            case D3D12_MESSAGE_CATEGORY_RESOURCE_MANIPULATION: return "RESOURCE_MANIP";
+            case D3D12_MESSAGE_CATEGORY_EXECUTION: return "EXECUTION";
+            case D3D12_MESSAGE_CATEGORY_SHADER:
+                return "SHADER";
+            default:
+                NEB_ASSERT(false);
+                return "UNKNOWN";
+            }
+        }
+
+        static std::string_view GetMessageSeverityAsStr(D3D12_MESSAGE_SEVERITY severity)
+        {
+            switch (severity)
+            {
+            case D3D12_MESSAGE_SEVERITY_CORRUPTION: return "CORRUPTION";
+            case D3D12_MESSAGE_SEVERITY_ERROR: return "ERROR";
+            case D3D12_MESSAGE_SEVERITY_WARNING: return "WARNING";
+            case D3D12_MESSAGE_SEVERITY_INFO: return "INFO";
+            case D3D12_MESSAGE_SEVERITY_MESSAGE:
+                return "MESSAGE";
+            default:
+                NEB_ASSERT(false);
+                return "UNKNOWN";
+            }
+        }
+
+        void OnDebugLayerMessage(D3D12_MESSAGE_CATEGORY category,
+            D3D12_MESSAGE_SEVERITY severity,
+            D3D12_MESSAGE_ID ID,
+            LPCSTR description,
+            void* vpDevice)
+        {
+            std::string_view pCategory = GetMessageCategoryAsStr(category);
+            std::string_view pSeverity = GetMessageSeverityAsStr(severity);
+            std::string message = std::format("(Severity: {}) [Category: {}], ID {}: {}",
+                pSeverity,
+                pCategory,
+                static_cast<UINT>(ID),
+                description);
+
+            switch (severity)
+            {
+            case D3D12_MESSAGE_SEVERITY_CORRUPTION:
+            case D3D12_MESSAGE_SEVERITY_ERROR:
+            {
+                NEB_LOG_ERROR(message);
+            };
+            break;
+            case D3D12_MESSAGE_SEVERITY_WARNING:
+            {
+                NEB_LOG_WARN(message);
+            };
+            break;
+            case D3D12_MESSAGE_SEVERITY_INFO:
+            case D3D12_MESSAGE_SEVERITY_MESSAGE:
+            {
+                NEB_LOG_INFO(message);
+            };
+            break;
+            default:
+                NEB_ASSERT(false);
+                break;
+            }
+        }
+    }; // validation namespace
+
+    void NRIDevice::InitDebugDeviceContext()
+    {
+#if defined(NEB_DEBUG)
+        ThrowIfFailed(m_device->QueryInterface(IID_PPV_ARGS(m_debugDevice.ReleaseAndGetAddressOf())),
+            "Could not retrieve debug device, was D3D12GetDebugInterface call successful?");
+
+        HRESULT hr = m_device->QueryInterface(IID_PPV_ARGS(m_debugInfoQueue.ReleaseAndGetAddressOf()));
+        NEB_LOG_WARN_IF(FAILED(hr), "Failed to obtain device debug information queue. Validation layer messaging callback won't be initialized correctly!");
+
+        if (SUCCEEDED(hr))
+        {
+            D3D12_MESSAGE_ID deniedIDs[] = {
+                // Suppress D3D12 ERROR: ID3D12CommandQueue::Present: Resource state (0x800: D3D12_RESOURCE_STATE_COPY_SOURCE)
+                // As it thats a bug in the DXGI Debug Layer interaction with the DX12 Debug Layer w/ Windows 11.
+                // The issue comes from debug layer interacting with hybrid graphics, such as integrated and discrete laptop GPUs
+                D3D12_MESSAGE_ID_RESOURCE_BARRIER_MISMATCHING_COMMAND_LIST_TYPE
+            };
+
+            D3D12_INFO_QUEUE_FILTER_DESC denyFilterDesc{
+                .NumIDs = _countof(deniedIDs),
+                .pIDList = deniedIDs
+            };
+
+            D3D12_INFO_QUEUE_FILTER filter{
+                .AllowList = {},
+                .DenyList = { denyFilterDesc }
+            };
+
+            static_assert(sizeof(DWORD) == sizeof(UINT) && "DWORD should still push 4 bytes on a 64-bit processor");
+            ThrowIfFailed(m_debugInfoQueue->AddStorageFilterEntries(&filter));
+            ThrowIfFailed(m_debugInfoQueue->RegisterMessageCallback(validation::OnDebugLayerMessage, D3D12_MESSAGE_CALLBACK_FLAG_NONE, this, &(DWORD&)m_debugCallbackID));
+        }
+#endif // defined(NEBD_DEBUG)
     }
 
     BOOL NRIDevice::QueryDxgiFactoryTearingSupport() const

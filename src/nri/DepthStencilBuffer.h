@@ -11,7 +11,9 @@ namespace Neb::nri
     {
     public:
         BOOL Init(UINT width, UINT height);
+
         BOOL Resize(UINT width, UINT height);
+        DXGI_FORMAT GetFormat() const { return m_desc.Format; }
 
         const D3D12_RESOURCE_DESC& GetDesc() const { return m_desc; }
         ID3D12Resource* GetBufferResource() const { return m_bufferAllocation->GetResource(); }

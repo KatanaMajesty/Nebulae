@@ -75,15 +75,19 @@ namespace Neb::nri
         // Below these init functions goes raw D3D12 functions
         void InitPipeline();
 
-        D3D12Rc<ID3D12Debug1> m_debugInterface;
-        D3D12Rc<IDXGIFactory6> m_dxgiFactory;
+        Rc<ID3D12Debug1> m_debugInterface;
+        Rc<IDXGIFactory6> m_dxgiFactory;
 
         // Most suitable adapter for device creation
         BOOL IsDxgiAdapterSuitable(IDXGIAdapter3* dxgiAdapter, const DXGI_ADAPTER_DESC1& desc) const;
         BOOL QueryMostSuitableDeviceAdapter();
-        D3D12Rc<IDXGIAdapter3> m_dxgiAdapter;
-        D3D12Rc<ID3D12Device5> m_device;
-        D3D12Rc<ID3D12DebugDevice> m_debugDevice;
+        Rc<IDXGIAdapter3> m_dxgiAdapter;
+        Rc<ID3D12Device5> m_device;
+
+        void InitDebugDeviceContext();
+        Rc<ID3D12DebugDevice> m_debugDevice;
+        Rc<ID3D12InfoQueue1> m_debugInfoQueue;
+        UINT m_debugCallbackID = UINT(-1);
 
         NRIDeviceCapabilities m_capabilities = {};
         BOOL QueryDxgiFactoryTearingSupport() const;
@@ -91,14 +95,14 @@ namespace Neb::nri
         ESupportTier_Raytracing QueryDeviceRaytracingSupportTier() const;
 
         void InitCommandContexts();
-        D3D12Rc<ID3D12CommandQueue> m_commandQueues[eCommandContextType_NumTypes];
+        Rc<ID3D12CommandQueue> m_commandQueues[eCommandContextType_NumTypes];
         CommandAllocatorPool m_commandAllocatorPools[eCommandContextType_NumTypes];
 
         void InitDescriptorHeaps();
         DescriptorHeap m_descriptorHeaps[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES];
 
         void InitResourceAllocator();
-        D3D12Rc<D3D12MA::Allocator> m_D3D12Allocator;
+        Rc<D3D12MA::Allocator> m_D3D12Allocator;
     };
 
 }; // Neb::nri namespace
