@@ -62,30 +62,6 @@ namespace Neb
         nri::ThrowIfFalse(InitResourcesAndDescriptors(width, height), "Failed to initialize resources or descriptors");
     }
 
-    void RtScene::Render(UINT frameIndex, ID3D12Fence* fence, UINT fenceValue)
-    {
-        // UINT frameIndex = NextFrame();
-
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-        nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
-        nri::D3D12Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
-
-        nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
-        {
-            PopulateCommandLists(frameIndex);
-        }
-        nri::ThrowIfFailed(m_commandList->Close(), "Couldn't close a command list");
-
-        ID3D12CommandList* pCommandLists[] = { m_commandList.Get() };
-        ID3D12CommandQueue* queue = device.GetCommandQueue(nri::eCommandContextType_Graphics);
-        queue->ExecuteCommandLists(_countof(pCommandLists), pCommandLists);
-        queue->Signal(fence, fenceValue);
-
-        m_swapchain->Present(FALSE);
-
-        commandAllocatorPool.DiscardAllocator(commandAllocator, fence, fenceValue);
-    }
-
     void RtScene::PopulateCommandLists(UINT frameIndex)
     {
         NEB_ASSERT(m_scene && m_swapchain, "Scene and swapchain should be valid for command list population");

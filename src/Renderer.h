@@ -81,7 +81,7 @@ namespace Neb
         void InitInstanceCb();
         nri::ConstantBuffer m_cbInstance;
 
-        RtScene m_rtScene;
+        RtScene m_raytracer;
     };
 
 }

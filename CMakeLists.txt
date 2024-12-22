@@ -2,7 +2,14 @@ cmake_minimum_required(VERSION 3.21)
 
 project(DXRNebulae LANGUAGES CXX)
 
-add_executable(DXRNebulae WIN32)
+option(NEBULAE_WIN32_APPLICATION "Build Nebulae executable as Win32 application" OFF)
+
+if(NEBULAE_WIN32_APPLICATION)
+    add_executable(DXRNebulae WIN32)
+else()
+    add_executable(DXRNebulae)
+endif(NEBULAE_WIN32_APPLICATION)
+
 set_property(TARGET DXRNebulae PROPERTY CXX_STANDARD 23)
 
 target_compile_definitions(DXRNebulae
@@ -13,7 +20,6 @@ PUBLIC
 
 target_sources(DXRNebulae PRIVATE
     "src/common/Assert.h"
-    "src/common/Defines.h"
     "src/common/Log.cpp"
     "src/common/Log.h"
     "src/common/TimeWatch.h"

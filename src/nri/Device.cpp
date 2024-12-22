@@ -33,12 +33,11 @@ namespace Neb::nri
     // https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component#loadpipeline
     void NRIDevice::InitPipeline()
     {
-#if defined(NEB_DEBUG)
         // Enable the debug layer
         ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(m_debugInterface.ReleaseAndGetAddressOf())));
-
-        m_debugInterface->SetEnableGPUBasedValidation(TRUE);
         m_debugInterface->EnableDebugLayer();
+#if defined(NEB_DEBUG)
+        m_debugInterface->SetEnableGPUBasedValidation(TRUE);
 #endif // defined(NEB_DEBUG)
 
         // Create the factory

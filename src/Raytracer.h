@@ -50,7 +50,7 @@ namespace Neb
         UINT IndexStride = 0;
         UINT64 IndexOffsetInBytes = 0;
         UINT NumIndices = 0; // assumed to be uint32_t indices
-    }; // RtBLASGeometryBuffer struct
+    };                       // RtBLASGeometryBuffer struct
 
     struct RtTLASInstanceBuffer
     {
@@ -67,11 +67,10 @@ namespace Neb
         void WaitForGpuContext(); // Effectively, blocks until all ray tracing operations are done
         void Resize(UINT width, UINT height);
 
-        void Render(UINT frameIndex, ID3D12Fence* fence, UINT fenceValue);
-
-    private:
+        ID3D12GraphicsCommandList* GetD3D12CommandList() const { return m_commandList.Get(); };
         void PopulateCommandLists(UINT frameIndex);
 
+    private:
         Scene* m_scene = nullptr;
         nri::Swapchain* m_swapchain = nullptr;
 
@@ -103,7 +102,7 @@ namespace Neb
         enum ERaygenRoot
         {
             eRaygenRoot_OutputUav = 0,
-            //eRaygenRoot_TlasSrv,
+            // eRaygenRoot_TlasSrv,
             eRaygenRoot_NumRoots,
         };
 
@@ -137,7 +136,6 @@ namespace Neb
         BOOL InitShaderBindingTable();
         nv_helpers_dx12::ShaderBindingTableGenerator m_sbtGenerator;
         nri::Rc<ID3D12Resource> m_sbtBuffer;
-
     };
 
 } // Neb namespace

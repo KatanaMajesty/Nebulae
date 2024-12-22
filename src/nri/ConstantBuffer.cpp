@@ -1,6 +1,5 @@
 #include "ConstantBuffer.h"
 
-#include "../common/Defines.h"
 #include "Device.h"
 
 namespace Neb::nri

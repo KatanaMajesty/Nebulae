@@ -89,6 +89,11 @@ namespace Neb::nri
         }
     }
 
+    bool UiContext::IsMouseBusy()
+    {
+        return ImGui::GetIO().WantCaptureMouse;
+    }
+
     void UiContext::InitWin32Hwnd()
     {
         // Setup Platform backend

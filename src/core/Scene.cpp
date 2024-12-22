@@ -6,6 +6,8 @@
 #include "../Nebulae.h"
 #include "../input/InputManager.h"
 
+#include "../nri/imgui/UiContext.h"
+
 namespace Neb
 {
 
@@ -20,6 +22,9 @@ namespace Neb
 
     void Scene::OnMouseCursorMoved(const MouseEvent_CursorHotspotChanged& event)
     {
+        if (nri::UiContext::Get()->IsMouseBusy())
+            return;
+
         if (AbleToInspect)
         {
             // we want 180 degrees from center of the screen to its edge
@@ -51,6 +56,9 @@ namespace Neb
 
     void Scene::OnMouseButtonInteract(const MouseEvent_ButtonInteraction& event)
     {
+        if (nri::UiContext::Get()->IsMouseBusy())
+            return;
+
         if (event.Button == eMouseButton_Left)
         {
             // ternary operator incident (fetish)

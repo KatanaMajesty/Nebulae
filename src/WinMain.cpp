@@ -14,6 +14,12 @@
 // to handle ImGui WinAPI proc
 #include <imgui/imgui.h>
 
+#if defined(NEB_WIN32_APPLICATION)
+// Use main for "windows" applications
+#ifdef _MSC_VER
+#pragma comment(linker, "/subsystem:windows /ENTRY:mainCRTStartup")
+#endif
+
 struct WIN32Console
 {
     WIN32Console()
@@ -29,6 +35,8 @@ struct WIN32Console
 
     FILE* Stream = NULL;
 };
+
+#endif // defined(NEB_WIN32_APPLICATION)
 
 std::filesystem::path GetModuleDirectory()
 {
@@ -221,13 +229,14 @@ LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
-INT WINAPI WinMain(
-    _In_ HINSTANCE hInstance,
-    _In_opt_ HINSTANCE hPrevInstance,
-    _In_ LPSTR lpCmdLine,
-    _In_ INT nShowCmd)
+int32_t main(int argc, char* argv[])
 {
+    // provides the executable's module handle, which is the same as the hInstance
+    HINSTANCE hInstance = GetModuleHandle(nullptr);
+
+#if defined(NEB_WIN32_APPLICATION)
     WIN32Console console;
+#endif // defined(NEB_WIN32_APPLICATION)
 
     constexpr const char* lpClassName = "DXRNebulae";
     constexpr const char* lpWindowName = "DirectX Raytracing Nebulae";
@@ -264,7 +273,7 @@ INT WINAPI WinMain(
         return 0;
     }
 
-    ShowWindow(hwnd, nShowCmd);
+    ShowWindow(hwnd, SW_SHOWDEFAULT);
 
     // Initialize input-related contexts
     InitInputMappings();

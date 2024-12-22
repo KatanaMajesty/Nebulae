@@ -46,6 +46,10 @@ namespace Neb::nri
 
         void HandleWin32Proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+        // returns  true - if mouse cursor is currently hovering over/being used by ImGui UI,
+        //          false otherwise
+        bool IsMouseBusy();
+
     private:
         void InitWin32Hwnd();
         void InitDx12();

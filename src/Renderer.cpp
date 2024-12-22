@@ -58,7 +58,7 @@ namespace Neb
         m_scene = scene;
 
         // Validate if swapchains extents are valid here
-        if (!m_rtScene.InitForScene(&m_swapchain, m_scene))
+        if (!m_raytracer.InitForScene(&m_swapchain, m_scene))
         {
             return false;
         }
@@ -101,7 +101,25 @@ namespace Neb
         // Move to the next frame;
         UINT frameIndex = NextFrame();
 
-        m_rtScene.Render(frameIndex, m_fence.Get(), m_fenceValues[frameIndex]);
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
+        nri::Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
+
+        ID3D12GraphicsCommandList* commandList = m_raytracer.GetD3D12CommandList();
+
+        nri::ThrowIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
+        {
+            nri::UiContext::Get()->BeginFrame();
+            m_raytracer.PopulateCommandLists(frameIndex);
+            nri::UiContext::Get()->EndFrame();
+            nri::UiContext::Get()->SubmitCommands(frameIndex, commandList, &m_swapchain);
+        }
+        nri::ThrowIfFailed(commandList->Close());
+
+        SubmitCommandList(nri::eCommandContextType_Graphics, commandList, m_fence.Get(), m_fenceValues[frameIndex]);
+        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[frameIndex]);
+
+        m_swapchain.Present(FALSE);
     }
 
     void Renderer::Resize(UINT width, UINT height)
@@ -112,19 +130,19 @@ namespace Neb
 
         // Before resizing swapchain wait for all frames to finish rendering
         WaitForAllFrames();
-        m_rtScene.WaitForGpuContext(); // Wait for ray tracing to finish as it is executed on the same command queue
+        m_raytracer.WaitForGpuContext(); // Wait for ray tracing to finish as it is executed on the same command queue
         {
             // Handle the return result better
             m_swapchain.Resize(width, height);
             m_depthStencilBuffer.Resize(width, height);
-            m_rtScene.Resize(width, height); // Finally resize the ray tracing scene
+            m_raytracer.Resize(width, height); // Finally resize the ray tracing scene
         }
     }
 
     void Renderer::Shutdown()
     {
         // TODO: check if rt scene sync is correct, I think it should have a separate fence and not share it with renderer
-        m_rtScene.WaitForGpuContext();
+        m_raytracer.WaitForGpuContext();
         WaitForAllFrames();
 
         nri::UiContext::Get()->Shutdown();

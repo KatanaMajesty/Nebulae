@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Defines.h"
 #include "Win.h"
 
 #include <iostream>
@@ -96,7 +95,8 @@ namespace Neb
 
 } // Neb namespace
 
-#if defined(NEB_DEBUG)
+#if 1
+//#if defined(NEB_DEBUG)
 #define NEB_LOG_INFO(msg, ...) (Neb::Trace(Neb::ETraceCategory::Info, msg, ##__VA_ARGS__))
 #define NEB_LOG_WARN(msg, ...) (Neb::Trace(Neb::ETraceCategory::Warning, msg, ##__VA_ARGS__))
 #define NEB_LOG_ERROR(msg, ...) (Neb::Trace(Neb::ETraceCategory::Error, msg, ##__VA_ARGS__))
