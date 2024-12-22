@@ -140,7 +140,7 @@ private:
     /// Bottom-level AS
     ID3D12Resource* bottomLevelAS;
     /// Transform matrix
-    const DirectX::XMMATRIX& transform;
+    DirectX::XMMATRIX transform;
     /// Instance ID visible in the shader
     UINT instanceID;
     /// Hit group index used to fetch the shaders from the SBT
