@@ -1,5 +1,7 @@
 #include "Device.h"
 
+#include "common/Configuration.h"
+
 // Chill here for getting started -> https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component
 
 namespace Neb::nri
@@ -33,12 +35,14 @@ namespace Neb::nri
     // https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component#loadpipeline
     void NRIDevice::InitPipeline()
     {
-        // Enable the debug layer
-        ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(m_debugInterface.ReleaseAndGetAddressOf())));
-        m_debugInterface->EnableDebugLayer();
-#if defined(NEB_DEBUG)
-        m_debugInterface->SetEnableGPUBasedValidation(TRUE);
-#endif // defined(NEB_DEBUG)
+        if (Config::GetValue<bool>(EConfigKey::EnableDebugLayer))
+        {
+            // Enable the debug layer
+            ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(m_debugInterface.ReleaseAndGetAddressOf())));
+
+            m_debugInterface->EnableDebugLayer();
+            m_debugInterface->SetEnableGPUBasedValidation(Config::GetValue<bool>(EConfigKey::EnableGpuValidation));
+        }
 
         // Create the factory
         Rc<IDXGIFactory2> factory;
@@ -199,7 +203,9 @@ namespace Neb::nri
 
     void NRIDevice::InitDebugDeviceContext()
     {
-#if defined(NEB_DEBUG)
+        if (!Config::GetValue<bool>(EConfigKey::EnableDeviceDebugging))
+            return;
+
         ThrowIfFailed(m_device->QueryInterface(IID_PPV_ARGS(m_debugDevice.ReleaseAndGetAddressOf())),
             "Could not retrieve debug device, was D3D12GetDebugInterface call successful?");
 
@@ -229,7 +235,6 @@ namespace Neb::nri
             ThrowIfFailed(m_debugInfoQueue->AddStorageFilterEntries(&filter));
             ThrowIfFailed(m_debugInfoQueue->RegisterMessageCallback(validation::OnDebugLayerMessage, D3D12_MESSAGE_CALLBACK_FLAG_NONE, this, &(DWORD&)m_debugCallbackID));
         }
-#endif // defined(NEBD_DEBUG)
     }
 
     BOOL NRIDevice::QueryDxgiFactoryTearingSupport() const
@@ -325,7 +330,6 @@ namespace Neb::nri
         D3D12MA::ALLOCATOR_DESC desc = {};
         desc.Flags = D3D12MA::ALLOCATOR_FLAG_MSAA_TEXTURES_ALWAYS_COMMITTED;
         desc.pDevice = m_device.Get();
-        ;
         desc.PreferredBlockSize = 0;
         desc.pAllocationCallbacks = nullptr;
         desc.pAdapter = m_dxgiAdapter.Get();

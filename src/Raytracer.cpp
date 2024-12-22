@@ -5,6 +5,7 @@
 #include "common/Assert.h"
 #include "common/Log.h"
 #include "core/Math.h"
+#include "nri/imgui/UiContext.h"
 #include "nri/Device.h"
 #include "nri/Shader.h"
 #include "nri/ShaderCompiler.h"
@@ -66,6 +67,9 @@ namespace Neb
     {
         NEB_ASSERT(m_scene && m_swapchain, "Scene and swapchain should be valid for command list population");
         nri::NRIDevice& device = nri::NRIDevice::Get();
+
+        bool v = true;
+        //ImGui::ShowDemoWindow(&v);
 
         std::array heaps = { device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).GetHeap() };
         m_commandList->SetDescriptorHeaps(static_cast<UINT>(heaps.size()), heaps.data());
@@ -318,7 +322,7 @@ namespace Neb
             result.ScratchBuffer.Get(),
             result.ASBuffer.Get(),
             result.InstanceDescriptorBuffer.Get(), false, nullptr, 
-            D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE);
+            D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE | D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE);
         return result;
     }
 
@@ -365,6 +369,10 @@ namespace Neb
                 // TODO: expects row-major, providing column-major. I dont get it (DirectXMath operates in row-major)
                 Mat4 instanceToWorld = Mat4(scale * rotation * translation);
                 instanceTransformations.push_back(instanceToWorld.Transpose());
+
+                translation = Mat4::CreateTranslation(Vec3(-2.0f, 0.0f, 0.0f));
+                instanceToWorld = Mat4(scale * rotation * translation);
+               // instanceTransformations.push_back(instanceToWorld.Transpose());
             }
 
             std::vector<RtTLASInstanceBuffer> instanceBuffers;

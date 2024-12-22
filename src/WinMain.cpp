@@ -1,11 +1,15 @@
 #include <filesystem>
 
 #include "core/Math.h"
+#include "common/Configuration.h"
 #include "common/Log.h"
+
 #include "input/InputManager.h"
+
 #include "nri/Device.h"
 #include "nri/nvidia/NsightAftermathCrashTracker.h"
 #include "nri/imgui/UiContext.h"
+#include "ArgumentParser.h"
 #include "Nebulae.h"
 
 #include "Win.h"
@@ -237,6 +241,13 @@ int32_t main(int argc, char* argv[])
 #if defined(NEB_WIN32_APPLICATION)
     WIN32Console console;
 #endif // defined(NEB_WIN32_APPLICATION)
+
+    /* clang-format off */
+    Neb::ArgumentParser argParser(argc, argv);
+    Neb::Config::SetValue(Neb::EConfigKey::EnableDebugLayer,        argParser.Get<bool>(/*key*/ "enable-debug-layer",       /*default-value*/ true));
+    Neb::Config::SetValue(Neb::EConfigKey::EnableGpuValidation,     argParser.Get<bool>(/*key*/ "enable-gpu-validation",    /*default-value*/ true));
+    Neb::Config::SetValue(Neb::EConfigKey::EnableDeviceDebugging,   argParser.Get<bool>(/*key*/ "enable-device-debug",      /*default-value*/ true));
+    /* clang-format on */
 
     constexpr const char* lpClassName = "DXRNebulae";
     constexpr const char* lpWindowName = "DirectX Raytracing Nebulae";

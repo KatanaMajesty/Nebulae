@@ -6,6 +6,7 @@ option(NEBULAE_WIN32_APPLICATION "Build Nebulae executable as Win32 application"
 
 if(NEBULAE_WIN32_APPLICATION)
     add_executable(DXRNebulae WIN32)
+    target_compile_definitions(DXRNebulae PUBLIC NEB_WIN32_APPLICATION=1)
 else()
     add_executable(DXRNebulae)
 endif(NEBULAE_WIN32_APPLICATION)
@@ -62,6 +63,7 @@ target_sources(DXRNebulae PRIVATE
     "src/nri/stdafx.h"
     "src/nri/Swapchain.cpp"
     "src/nri/Swapchain.h"
+    "src/ArgumentParser.h"
     "src/Nebulae.cpp"
     "src/Nebulae.h"
     "src/Raytracer.cpp"
