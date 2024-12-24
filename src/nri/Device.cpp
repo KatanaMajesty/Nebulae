@@ -206,6 +206,12 @@ namespace Neb::nri
         if (!Config::GetValue<bool>(EConfigKey::EnableDeviceDebugging))
             return;
 
+        if (!Config::GetValue<bool>(EConfigKey::EnableDebugLayer))
+        {
+            NEB_LOG_WARN("Device debugging was enabled, but debug layer is disabled! Enable debug layer for device debugging to work!");
+            return;
+        }
+
         ThrowIfFailed(m_device->QueryInterface(IID_PPV_ARGS(m_debugDevice.ReleaseAndGetAddressOf())),
             "Could not retrieve debug device, was D3D12GetDebugInterface call successful?");
 

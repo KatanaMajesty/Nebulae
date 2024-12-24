@@ -10,8 +10,8 @@ namespace Neb
     enum class EConfigKey
     {
         EnableDebugLayer = 0,
-        EnableGpuValidation,
-        EnableDeviceDebugging,
+        EnableGpuValidation,    // Debug layer MUST be enabled for this!
+        EnableDeviceDebugging,  // Debug layer MUST be enabled for this!
         NumConfigKeys
     };
 

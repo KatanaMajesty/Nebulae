@@ -47,9 +47,11 @@ namespace Neb
         AddStaticMesh(m_scene->StaticMeshes.front());
 #endif // defined(BETTER_SCENE_SUPPORT)
 
-        nri::ThrowIfFalse(InitRaytracingPipeline(), "Failed to initialize ray tracing pipeline");
         nri::ThrowIfFalse(InitResourcesAndDescriptors(m_swapchain->GetWidth(), m_swapchain->GetHeight()), "Failed to initialize resources or descriptors");
+
+        nri::ThrowIfFalse(InitRaytracingPipeline(), "Failed to initialize ray tracing pipeline");
         nri::ThrowIfFalse(InitShaderBindingTable(), "Failed to initialize SBT");
+
         return true;
     }
 
@@ -68,8 +70,13 @@ namespace Neb
         NEB_ASSERT(m_scene && m_swapchain, "Scene and swapchain should be valid for command list population");
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
-        bool v = true;
-        //ImGui::ShowDemoWindow(&v);
+        if (ImGui::Button("Reload shaders"))
+        {
+            if (this->InitRaytracingPipeline())
+            {
+                nri::ThrowIfFalse(this->InitShaderBindingTable());
+            }
+        }
 
         std::array heaps = { device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).GetHeap() };
         m_commandList->SetDescriptorHeaps(static_cast<UINT>(heaps.size()), heaps.data());
@@ -321,7 +328,7 @@ namespace Neb
         tlasGenerator.Generate(m_commandList.Get(),
             result.ScratchBuffer.Get(),
             result.ASBuffer.Get(),
-            result.InstanceDescriptorBuffer.Get(), false, nullptr, 
+            result.InstanceDescriptorBuffer.Get(), false, nullptr,
             D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE | D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE);
         return result;
     }
@@ -372,7 +379,15 @@ namespace Neb
 
                 translation = Mat4::CreateTranslation(Vec3(-2.0f, 0.0f, 0.0f));
                 instanceToWorld = Mat4(scale * rotation * translation);
-               // instanceTransformations.push_back(instanceToWorld.Transpose());
+                instanceTransformations.push_back(instanceToWorld.Transpose());
+
+                translation = Mat4::CreateTranslation(Vec3(2.0f, 0.0f, 0.0f));
+                instanceToWorld = Mat4(scale * rotation * translation);
+                instanceTransformations.push_back(instanceToWorld.Transpose());
+
+                translation = Mat4::CreateTranslation(Vec3(0.0f, 0.0f, 2.0f));
+                instanceToWorld = Mat4(scale * rotation * translation);
+                instanceTransformations.push_back(instanceToWorld.Transpose());
             }
 
             std::vector<RtTLASInstanceBuffer> instanceBuffers;
@@ -413,9 +428,13 @@ namespace Neb
         const std::filesystem::path shaderDirectory = Nebulae::Get().GetSpecification().AssetsDirectory / "shaders";
         const std::filesystem::path shaderFilepath = shaderDirectory / "BasicRt.hlsl";
 
-        nri::ThrowIfFalse(this->InitRayGen(shaderFilepath));
-        nri::ThrowIfFalse(this->InitRayClosestHit(shaderFilepath));
-        nri::ThrowIfFalse(this->InitRayMiss(shaderFilepath));
+        if (!this->InitRayGen(shaderFilepath) ||
+            !this->InitRayClosestHit(shaderFilepath) || 
+            !this->InitRayMiss(shaderFilepath))
+        {
+            NEB_LOG_ERROR("Failed to init raytracing shaders");
+            return false;
+        }
 
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
@@ -459,8 +478,8 @@ namespace Neb
         m_rayGenRS = nri::RootSignature(eRaygenRoot_NumRoots)
                          .AddParamDescriptorTable(eRaygenRoot_OutputUav, std::array{ outputTextureUav });
 
-        nri::ThrowIfFalse(m_rayGenRS.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE));
-        return true;
+        m_rayGenRS.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+        return m_rayGen.HasBinary() && m_rayGenRS.IsValid();
     }
 
     BOOL RtScene::InitRayClosestHit(const std::filesystem::path& filepath, nri::EShaderModel shaderModel)
@@ -469,8 +488,8 @@ namespace Neb
             nri::ShaderCompilationDesc("ClosestHit", shaderModel, nri::EShaderType::RayClosestHit));
 
         m_rayClosestHitRS = nri::RootSignature();
-        nri::ThrowIfFalse(m_rayClosestHitRS.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE));
-        return true;
+        m_rayClosestHitRS.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+        return m_rayClosestHit.HasBinary() && m_rayClosestHitRS.IsValid();
     }
 
     BOOL RtScene::InitRayMiss(const std::filesystem::path& filepath, nri::EShaderModel shaderModel)
@@ -479,8 +498,8 @@ namespace Neb
             nri::ShaderCompilationDesc("Miss", shaderModel, nri::EShaderType::RayMiss));
 
         m_rayMissRS = nri::RootSignature();
-        nri::ThrowIfFalse(m_rayMissRS.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE));
-        return true;
+        m_rayMissRS.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+        return m_rayMiss.HasBinary() && m_rayMissRS.IsValid();
     }
 
     BOOL RtScene::InitResourcesAndDescriptors(UINT width, UINT height)

@@ -36,6 +36,7 @@ namespace Neb::nri
 
         RootSignature& AddStaticSampler(UINT staticSamplerIndex, const D3D12_STATIC_SAMPLER_DESC& samplerDesc);
 
+        BOOL IsValid() const { return m_rootSignature != nullptr; }
         BOOL Init(nri::NRIDevice* device, D3D12_ROOT_SIGNATURE_FLAGS flags = D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
         inline ID3D12RootSignature* GetD3D12RootSignature() const { return m_rootSignature.Get(); }

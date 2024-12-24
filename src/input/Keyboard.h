@@ -73,7 +73,7 @@ namespace Neb
 
     private:
         InputEventCallbackContainer<KeyboardEvent_KeyInteraction> m_keyInteractionCallbacks;
-        std::array<EKeycodeState, eKeycode_NumKeycodes> m_keycodeStates;
+        std::array<EKeycodeState, eKeycode_NumKeycodes> m_keycodeStates = {};
     };
 
     template<typename EventType, typename CallbackType, typename ...Args>

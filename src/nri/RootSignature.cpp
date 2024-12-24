@@ -123,7 +123,7 @@ namespace Neb::nri
             blob->GetBufferSize(),
             IID_PPV_ARGS(m_rootSignature.ReleaseAndGetAddressOf())));
 
-        return m_rootSignature != nullptr;
+        return this->IsValid();
     }
 
 } // Neb::nri namespace

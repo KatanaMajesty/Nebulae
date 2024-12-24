@@ -52,7 +52,8 @@ namespace Neb
         void OnKeyInteraction(const KeyboardEvent_KeyInteraction& event);
 
     private:
-        bool m_isInitialized = FALSE;
+        bool m_isInitialized = false;
+        bool m_isRaytracer = false;
         AppSpec m_appSpec = {};
 
         TimeWatch m_timeWatch;

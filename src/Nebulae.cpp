@@ -84,7 +84,7 @@ namespace Neb
 
         Keyboard& keyboard = InputManager::Get().GetKeyboard();
 
-        (keyboard.GetKeycodeState(eKeycode_F1) == eKeycodeState_Pressed ? 
+        (m_isRaytracer ? 
             m_renderer.RenderSceneRaytraced(timestep) : 
             m_renderer.RenderScene(timestep)
         );
@@ -103,6 +103,7 @@ namespace Neb
             switch (event.Keycode)
             {
             case eKeycode_Esc: PostQuitMessage(0); break;
+            case eKeycode_F1: m_isRaytracer = !m_isRaytracer; break;
             }
         }
     }

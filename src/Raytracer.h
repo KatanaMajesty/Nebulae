@@ -32,7 +32,8 @@ namespace Neb
     }; // RTAccelerationStructureBuffers struct
 
     // All CBs require 256 alignment
-    struct alignas(256) RtInstanceInfoCb
+    struct alignas(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT)
+    RtInstanceInfoCb
     {
         Neb::Mat4 ViewProjInverse;
         Neb::Vec4 CameraWorldPos;
