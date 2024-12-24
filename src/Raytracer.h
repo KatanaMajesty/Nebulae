@@ -64,8 +64,9 @@ namespace Neb
     public:
         RtScene() = default;
 
-        BOOL InitForScene(nri::Swapchain* swapchain, Scene* scene);
-        void WaitForGpuContext(); // Effectively, blocks until all ray tracing operations are done
+        BOOL Init(nri::Swapchain* swapchain);
+        BOOL InitSceneContext(Scene* scene);
+        void InitStaticMesh(const nri::StaticMesh& staticMesh);
         void Resize(UINT width, UINT height);
 
         ID3D12GraphicsCommandList* GetD3D12CommandList() const { return m_commandList.Get(); };
@@ -75,18 +76,10 @@ namespace Neb
         Scene* m_scene = nullptr;
         nri::Swapchain* m_swapchain = nullptr;
 
-        // TODO: Currently only works with a single static mesh and basically is just a setter (kinda)
-        //      add support for more static meshes
-        void AddStaticMesh(const nri::StaticMesh& staticMesh);
-
         void InitCommandList();
         nri::Rc<ID3D12GraphicsCommandList4> m_commandList;
 
-        void InitASFences();
-        void WaitForFenceCompletion(); // Effectively, blocks until all ray tracing operations are done
-        nri::Rc<ID3D12Fence> m_ASFence;
-        UINT m_fenceValue = 0;
-
+        
         RtAccelerationStructureBuffers CreateBLAS(std::span<const RtBLASGeometryBuffer> geometryBuffers);
         RtAccelerationStructureBuffers CreateTLAS(std::span<const RtTLASInstanceBuffer> instanceBuffers);
         // TODO: Only works with 1 TLAS -> support more in future

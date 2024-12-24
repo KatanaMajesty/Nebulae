@@ -57,11 +57,28 @@ namespace Neb
         NEB_ASSERT(scene, "Invalid scene!");
         m_scene = scene;
 
-        // Validate if swapchains extents are valid here
-        if (!m_raytracer.InitForScene(&m_swapchain, m_scene))
-        {
-            return false;
-        }
+        nri::ThrowIfFalse(m_raytracer.Init(&m_swapchain), "Failed to init scene context for ray tracing");
+
+        // use current frame index to submit AS work
+        UINT frameIndex = m_frameIndex;
+
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
+        nri::Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
+
+        ID3D12GraphicsCommandList* commandList = m_raytracer.GetD3D12CommandList();
+
+        // submit work for building raytracing AS
+        nri::ThrowIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
+        nri::ThrowIfFalse(m_raytracer.InitSceneContext(m_scene), "Failed to init scene context for ray tracing");
+        nri::ThrowIfFailed(commandList->Close());
+
+        SubmitCommandList(nri::eCommandContextType_Graphics, commandList, m_fence.Get(), m_fenceValues[frameIndex]);
+        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[frameIndex]);
+
+        // wait for work to finish
+        // TODO: do in parallel, avoid waiting here
+        this->WaitForAllFrames();
         return true;
     }
 
@@ -130,7 +147,6 @@ namespace Neb
 
         // Before resizing swapchain wait for all frames to finish rendering
         WaitForAllFrames();
-        m_raytracer.WaitForGpuContext(); // Wait for ray tracing to finish as it is executed on the same command queue
         {
             // Handle the return result better
             m_swapchain.Resize(width, height);
@@ -141,11 +157,11 @@ namespace Neb
 
     void Renderer::Shutdown()
     {
-        // TODO: check if rt scene sync is correct, I think it should have a separate fence and not share it with renderer
-        m_raytracer.WaitForGpuContext();
         WaitForAllFrames();
-
         nri::UiContext::Get()->Shutdown();
+
+        // destroy swapchain here because of singleton destructors being called AFTER device destruction
+        m_swapchain = nri::Swapchain();
     }
 
     void Renderer::PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene)
@@ -153,8 +169,7 @@ namespace Neb
         NEB_ASSERT(m_commandList && scene, "Invalid populate context");
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
-        bool v = true;
-        ImGui::ShowDemoWindow(&v);
+        ImGui::ShowDemoWindow();
 
         {
             std::array shaderVisibleHeaps = {
@@ -274,7 +289,8 @@ namespace Neb
     void Renderer::WaitForAllFrames()
     {
         UINT64 fenceValue = m_fenceValues[m_frameIndex];
-        if (m_fence->GetCompletedValue() < fenceValue)
+        UINT64 completedV = m_fence->GetCompletedValue();
+        if (completedV < fenceValue)
         {
             HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
             NEB_ASSERT(fenceEvent, "Failed to create HANDLE for event");

@@ -85,8 +85,9 @@ void ClosestHit(inout HitInfo payload, Attributes attributes)
     float3 hitColor = A * barycentrics.x + B * barycentrics.y + C * barycentrics.z;
 
     uint triangleColorPalette = 1024;
+    float instanceId = lerp(0.1, 0.4, float(InstanceIndex() % 4) / 4);
     float id = normalize(float3(float(PrimitiveIndex() % triangleColorPalette), 0, triangleColorPalette)).r;
-    payload.ColorAndDistance = float4(float3(saturate(id + 0.1f), saturate(id + 0.2f), saturate(id + 0.4f)), RayTCurrent());
+    payload.ColorAndDistance = float4(float3(saturate(id * (0.8 - instanceId)), saturate(id * min(instanceId, 0.2)), saturate(id * (0.4 - instanceId))), RayTCurrent());
     //payload.ColorAndDistance = float4(hitColor, RayTCurrent());
 }
 

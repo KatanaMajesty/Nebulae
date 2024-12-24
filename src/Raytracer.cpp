@@ -22,42 +22,43 @@
 
 namespace Neb
 {
-    BOOL RtScene::InitForScene(nri::Swapchain* swapchain, Scene* scene)
+    
+    BOOL RtScene::Init(nri::Swapchain* swapchain)
+    {
+        NEB_ASSERT(swapchain, "Swapchain must be valid for RT context to work");
+        m_swapchain = swapchain;
+
+        NEB_ASSERT(nri::NRIDevice::Get().GetCapabilities().RaytracingSupportTier != nri::ESupportTier_Raytracing::NotSupported,
+            "Hardware raytracing should be supported by selected device");
+
+        InitCommandList();
+        return true;
+    }
+
+    BOOL RtScene::InitSceneContext(Scene* scene)
     {
         NEB_ASSERT(scene, "Scene should be a valid pointer");
         m_scene = scene;
-        m_swapchain = swapchain;
 
-        // Very first step is to check for device compatibility
-        if (nri::NRIDevice::Get().GetCapabilities().RaytracingSupportTier == nri::ESupportTier_Raytracing::NotSupported)
+        NEB_ASSERT(m_scene->StaticMeshes.size() == 1, "No support for more than 1 static mesh currently!");
+        InitStaticMesh(m_scene->StaticMeshes.front());
+        
+        return true;
+    }
+
+    void RtScene::InitStaticMesh(const nri::StaticMesh& staticMesh)
+    {
+        if (staticMesh.Submeshes.empty())
         {
-            NEB_LOG_ERROR("Ray tracing is not supported on this device!");
-            return false;
+            NEB_LOG_WARN("Tried adding empty static mesh to RtScene");
+            return;
         }
 
-        InitCommandList();
-        InitASFences();
-
-// #define BETTER_SCENE_SUPPORT
-#if defined(BETTER_SCENE_SUPPORT)
-        for (const nri::StaticMesh& mesh : m_scene->StaticMeshes)
-            AddStaticMesh(mesh);
-#else
-        NEB_ASSERT(m_scene->StaticMeshes.size() == 1, "No support for more than 1 static mesh currently!");
-        AddStaticMesh(m_scene->StaticMeshes.front());
-#endif // defined(BETTER_SCENE_SUPPORT)
-
+        nri::ThrowIfFalse(InitAccelerationStructure(staticMesh));
         nri::ThrowIfFalse(InitResourcesAndDescriptors(m_swapchain->GetWidth(), m_swapchain->GetHeight()), "Failed to initialize resources or descriptors");
 
         nri::ThrowIfFalse(InitRaytracingPipeline(), "Failed to initialize ray tracing pipeline");
         nri::ThrowIfFalse(InitShaderBindingTable(), "Failed to initialize SBT");
-
-        return true;
-    }
-
-    void RtScene::WaitForGpuContext()
-    {
-        WaitForFenceCompletion();
     }
 
     void RtScene::Resize(UINT width, UINT height)
@@ -160,17 +161,6 @@ namespace Neb
         }
     }
 
-    void RtScene::AddStaticMesh(const nri::StaticMesh& staticMesh)
-    {
-        if (staticMesh.Submeshes.empty())
-        {
-            NEB_LOG_WARN("Tried adding empty static mesh to RtScene");
-            return;
-        }
-
-        nri::ThrowIfFalse(InitAccelerationStructure(staticMesh));
-    }
-
     void RtScene::InitCommandList()
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
@@ -184,31 +174,6 @@ namespace Neb
                 IID_PPV_ARGS(commandList.GetAddressOf())));
         }
         nri::ThrowIfFailed(commandList.As(&m_commandList));
-    }
-
-    void RtScene::InitASFences()
-    {
-        m_fenceValue = 0;
-
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-        nri::ThrowIfFailed(nri::NRIDevice::Get().GetDevice()->CreateFence(
-            m_fenceValue,
-            D3D12_FENCE_FLAG_NONE,
-            IID_PPV_ARGS(m_ASFence.ReleaseAndGetAddressOf())));
-    }
-
-    void RtScene::WaitForFenceCompletion()
-    {
-        UINT64 fenceValue = m_fenceValue;
-        if (m_ASFence->GetCompletedValue() < fenceValue)
-        {
-            HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
-            NEB_ASSERT(fenceEvent, "Failed to create HANDLE for event");
-
-            // Wait until the fence is completed.
-            nri::ThrowIfFailed(m_ASFence->SetEventOnCompletion(fenceValue, fenceEvent));
-            WaitForSingleObject(fenceEvent, INFINITE);
-        }
     }
 
     RtAccelerationStructureBuffers RtScene::CreateBLAS(std::span<const RtBLASGeometryBuffer> geometryBuffers)
@@ -335,12 +300,6 @@ namespace Neb
 
     BOOL RtScene::InitAccelerationStructure(const nri::StaticMesh& staticMesh)
     {
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-        nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
-
-        nri::Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
-        nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
-
         RtAccelerationStructureBuffers blas, tlas;
         {
             // Create BLAS
@@ -402,19 +361,6 @@ namespace Neb
             }
             tlas = CreateTLAS(instanceBuffers);
         }
-        nri::ThrowIfFailed(m_commandList->Close());
-
-        ID3D12CommandList* pCommandList = m_commandList.Get();
-        ID3D12CommandQueue* queue = device.GetCommandQueue(nri::eCommandContextType_Graphics);
-        UINT fenceValue = ++m_fenceValue;
-
-        // This stuff breaks -> idk why but buffers seem to be fine
-        queue->ExecuteCommandLists(1, &pCommandList);
-        queue->Signal(m_ASFence.Get(), fenceValue);
-        {
-            WaitForFenceCompletion();
-        }
-        commandAllocatorPool.DiscardAllocator(commandAllocator, m_ASFence.Get(), fenceValue);
 
         // Member assignments
         m_blas = std::move(blas);

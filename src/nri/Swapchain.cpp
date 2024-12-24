@@ -5,6 +5,11 @@
 
 namespace Neb::nri
 {
+    
+    Swapchain::~Swapchain()
+    {
+        ThrowIfFalse(ReleaseDxgiReferences());
+    }
 
     BOOL Swapchain::Init(HWND hwnd)
     {

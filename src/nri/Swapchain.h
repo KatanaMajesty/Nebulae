@@ -17,6 +17,11 @@ namespace Neb::nri
 
         Swapchain() = default;
 
+        Swapchain(const Swapchain&) = default;
+        Swapchain& operator=(const Swapchain&) = default;
+
+        ~Swapchain();
+
         // Initializes the swapchain, returns true if initialized successfully
         BOOL Init(HWND hwnd);
 

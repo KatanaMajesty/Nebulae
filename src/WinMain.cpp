@@ -261,8 +261,7 @@ int32_t main(int argc, char* argv[])
     RegisterClass(&wndClass);
 
     Neb::nri::NvNsightAftermathCrashTracker::Get()->Init();
-    Neb::nri::NRIDevice& device = Neb::nri::NRIDevice::Get();
-    device.Init();
+    Neb::nri::NRIDevice::Get().Init();
 
     HWND hwnd = CreateWindowEx(
         0,                   // Optional window styles.
@@ -309,7 +308,7 @@ int32_t main(int argc, char* argv[])
 
     nebulae.Shutdown();
 
-    device.Deinit();
+    Neb::nri::NRIDevice::Get().Deinit();
     Neb::nri::NvNsightAftermathCrashTracker::Get()->Destroy();
 
     UnregisterClass(lpClassName, hInstance);
