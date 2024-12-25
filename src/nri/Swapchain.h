@@ -24,6 +24,7 @@ namespace Neb::nri
 
         // Initializes the swapchain, returns true if initialized successfully
         BOOL Init(HWND hwnd);
+        void Shutdown();
 
         // Resizes all the backbuffers of the swapchain. If width == 0 && height == 0 the swapchain will
         // use the dimentions of window's client area

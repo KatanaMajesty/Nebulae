@@ -48,7 +48,9 @@ namespace Neb
         // Synchronizes with in-flight, waits if needed
         // returns  frame index of the next frame (as a swapchain's backbuffer index)
         UINT NextFrame();
-        void WaitForAllFrames();
+        void WaitForFrame(UINT frameIndex) const;
+        void WaitForLastFrame() const;
+        void WaitForFenceValue(UINT64 fenceValue) const;
 
         HWND m_hwnd = nullptr;
         Scene* m_scene = nullptr;

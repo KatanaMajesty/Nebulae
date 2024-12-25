@@ -31,7 +31,7 @@ namespace Neb
 
         m_sceneImporter.Clear();
         nri::ThrowIfFalse(m_sceneImporter.ImportScenesFromFile(appSpec.AssetsDirectory / "DamagedHelmet" / "DamagedHelmet.gltf"));
-        //nri::ThrowIfFalse(m_sceneImporter.ImportScenesFromFile(appSpec.AssetsDirectory / "Sponza" / "Sponza.gltf"));
+        // nri::ThrowIfFalse(m_sceneImporter.ImportScenesFromFile(appSpec.AssetsDirectory / "Sponza" / "Sponza.gltf"));
 
         // TODO: This is currently hardcoded as we know that very first scene will be used for rendering, thus we register its callbacks
         Neb::Scene* scene = m_sceneImporter.ImportedScenes.front().get();
@@ -61,6 +61,7 @@ namespace Neb
 
     void Nebulae::Shutdown()
     {
+        m_sceneImporter.Clear();
         m_renderer.Shutdown();
     }
 
@@ -82,12 +83,7 @@ namespace Neb
 
         secondsSinceLastFps += timestep;
 
-        Keyboard& keyboard = InputManager::Get().GetKeyboard();
-
-        (m_isRaytracer ? 
-            m_renderer.RenderSceneRaytraced(timestep) : 
-            m_renderer.RenderScene(timestep)
-        );
+        (m_isRaytracer ? m_renderer.RenderSceneRaytraced(timestep) : m_renderer.RenderScene(timestep));
     }
 
     void Nebulae::Resize(UINT width, UINT height)
@@ -102,7 +98,9 @@ namespace Neb
         {
             switch (event.Keycode)
             {
-            case eKeycode_Esc: PostQuitMessage(0); break;
+            case eKeycode_Esc: 
+                nri::ThrowIfFalse(DestroyWindow(m_appSpec.Handle), "Could not properly destroy window on escape!"); 
+                break;
             case eKeycode_F1: m_isRaytracer = !m_isRaytracer; break;
             }
         }

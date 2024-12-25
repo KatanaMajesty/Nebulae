@@ -78,7 +78,6 @@ namespace Neb
 
         void InitCommandList();
         nri::Rc<ID3D12GraphicsCommandList4> m_commandList;
-
         
         RtAccelerationStructureBuffers CreateBLAS(std::span<const RtBLASGeometryBuffer> geometryBuffers);
         RtAccelerationStructureBuffers CreateTLAS(std::span<const RtTLASInstanceBuffer> instanceBuffers);

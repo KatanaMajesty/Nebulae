@@ -284,6 +284,7 @@ int32_t main(int argc, char* argv[])
     }
 
     ShowWindow(hwnd, SW_SHOWDEFAULT);
+    UpdateWindow(hwnd);
 
     // Initialize input-related contexts
     InitInputMappings();

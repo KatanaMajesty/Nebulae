@@ -8,7 +8,7 @@ namespace Neb::nri
     
     Swapchain::~Swapchain()
     {
-        ThrowIfFalse(ReleaseDxgiReferences());
+        this->Shutdown();
     }
 
     BOOL Swapchain::Init(HWND hwnd)
@@ -54,6 +54,11 @@ namespace Neb::nri
         // Get description of swapchain to easily obtain dimensions
         ThrowIfFailed(m_dxgiSwapchain->GetDesc(&m_swapchainDesc));
         return TRUE;
+    }
+
+    void Swapchain::Shutdown()
+    {
+        ThrowIfFalse(ReleaseDxgiReferences());
     }
 
     BOOL Swapchain::Resize(UINT width, UINT height)

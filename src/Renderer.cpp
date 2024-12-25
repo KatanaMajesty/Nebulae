@@ -9,6 +9,8 @@
 // Currently needed to initialize root signature. Shaders are needed for that and we need assets directory
 #include "Nebulae.h"
 
+#include <algorithm>
+
 namespace Neb
 {
 
@@ -78,7 +80,7 @@ namespace Neb
 
         // wait for work to finish
         // TODO: do in parallel, avoid waiting here
-        this->WaitForAllFrames();
+        this->WaitForLastFrame();
         return true;
     }
 
@@ -146,7 +148,7 @@ namespace Neb
             return;
 
         // Before resizing swapchain wait for all frames to finish rendering
-        WaitForAllFrames();
+        this->WaitForLastFrame();
         {
             // Handle the return result better
             m_swapchain.Resize(width, height);
@@ -157,10 +159,11 @@ namespace Neb
 
     void Renderer::Shutdown()
     {
-        WaitForAllFrames();
+        this->WaitForLastFrame();
         nri::UiContext::Get()->Shutdown();
 
         // destroy swapchain here because of singleton destructors being called AFTER device destruction
+        m_swapchain.Shutdown();
         m_swapchain = nri::Swapchain();
     }
 
@@ -267,7 +270,7 @@ namespace Neb
     void Renderer::SubmitCommandList(nri::ECommandContextType contextType, ID3D12CommandList* commandList, ID3D12Fence* fence, UINT fenceValue)
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
-        
+
         ID3D12CommandQueue* queue = device.GetCommandQueue(contextType);
         queue->ExecuteCommandLists(1, &commandList);
         queue->Signal(fence, fenceValue);
@@ -275,22 +278,40 @@ namespace Neb
 
     UINT Renderer::NextFrame()
     {
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-
+#if 0
         UINT64 currentFenceValue = m_fenceValues[m_frameIndex];
         m_frameIndex = m_swapchain.GetCurrentBackbufferIndex();
         {
             WaitForAllFrames();
         }
         m_fenceValues[m_frameIndex] = currentFenceValue + 1;
+#else
+        UINT64 prevFenceValue = m_fenceValues[m_frameIndex];
+
+        m_frameIndex = m_swapchain.GetCurrentBackbufferIndex();
+        this->WaitForFrame(m_frameIndex);
+
+        m_fenceValues[m_frameIndex] = prevFenceValue + 1;
+#endif
         return m_frameIndex;
     }
 
-    void Renderer::WaitForAllFrames()
+    void Renderer::WaitForFrame(UINT frameIndex) const
     {
-        UINT64 fenceValue = m_fenceValues[m_frameIndex];
-        UINT64 completedV = m_fence->GetCompletedValue();
-        if (completedV < fenceValue)
+        UINT64 fenceValue = m_fenceValues[frameIndex];
+        this->WaitForFenceValue(fenceValue);
+    }
+
+    void Renderer::WaitForLastFrame() const
+    {
+        NEB_ASSERT(*std::ranges::max_element(m_fenceValues) == m_fenceValues[m_frameIndex], "Fence value we are waiting for needs to be max");
+        this->WaitForFrame(m_frameIndex);
+    }
+
+    void Renderer::WaitForFenceValue(UINT64 fenceValue) const
+    {
+        UINT64 completedValue = m_fence->GetCompletedValue();
+        if (completedValue < fenceValue)
         {
             HANDLE fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
             NEB_ASSERT(fenceEvent, "Failed to create HANDLE for event");
