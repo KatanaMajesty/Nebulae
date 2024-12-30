@@ -13,6 +13,10 @@ namespace Neb::nri
     class RootSignature
     {
     public:
+        // Shortcut, that initializes empty root signature
+        // https://learn.microsoft.com/en-us/windows/win32/direct3d12/example-root-signatures#an-empty-root-signature
+        static RootSignature Empty(NRIDevice* device, D3D12_ROOT_SIGNATURE_FLAGS flags = D3D12_ROOT_SIGNATURE_FLAG_NONE);
+
         RootSignature(UINT numRootParams = 0, UINT numStaticSamplers = 0);
 
         RootSignature& AddParamDescriptorTable(UINT rootParamIndex, std::span<const D3D12_DESCRIPTOR_RANGE1> descriptorRanges,

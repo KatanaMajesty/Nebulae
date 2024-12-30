@@ -15,15 +15,23 @@ struct Attributes
     float2 Bary;
 };
 
-struct InstanceInfo
+struct ViewInfo
 {
     // Requires 256 alignment
     float4x4 ViewProjInverse;
     float4 CameraWorldPos;
 };
 
-// Global constant buffer
-ConstantBuffer<InstanceInfo> cbInstanceInfo : register(b0);
+struct WorldInfo
+{
+    // x,y,z - dir, w - 1D intensity
+    float4 dirLightDirectionAndIntensity;
+    float3 dirLightPosition; // just to play around
+};
+
+// Global descriptors
+ConstantBuffer<ViewInfo> cbViewInfo : register(b0);
+ConstantBuffer<WorldInfo> cbWorldInfo : register(b1);
 RaytracingAccelerationStructure gSceneBVH : register(t0);
 
 // Raygen Local descriptors
@@ -48,8 +56,8 @@ void RayGen()
     float4 pNearNDC = float4(d.x, d.y, 0, 1); // z near = 0 (or maybe -1?)
     float4 pFarNDC = float4(d.x, d.y, 1, 1); // z far = 1
  
-    float4 pNearH = mul(pNearNDC, cbInstanceInfo.ViewProjInverse);
-    float4 pFarH = mul(pFarNDC, cbInstanceInfo.ViewProjInverse);
+    float4 pNearH = mul(pNearNDC, cbViewInfo.ViewProjInverse);
+    float4 pFarH = mul(pFarNDC, cbViewInfo.ViewProjInverse);
  
     float3 p0 = pNearH.xyz / pNearH.w;
     float3 p1 = pFarH.xyz / pFarH.w;
@@ -58,7 +66,7 @@ void RayGen()
 
     // Define a ray, consisting of origin, direction, and the min-max distance values
     RayDesc ray;
-    ray.Origin = cbInstanceInfo.CameraWorldPos.xyz;
+    ray.Origin = cbViewInfo.CameraWorldPos.xyz;
     ray.Direction = rayDir;
     ray.TMin = 0;
     ray.TMax = 100;
@@ -73,26 +81,60 @@ void RayGen()
     gOutput[launchIndex] = float4(payload.ColorAndDistance.rgb, 1.f);
 }
 
+// Shadow rays are cast by basic ClosestHit
+// thus forward-declare
+struct ShadowHitPayload
+{
+    bool isShadowRay;
+};
+
 [shader("closesthit")]
 void ClosestHit(inout HitInfo payload, Attributes attributes)
 {
-    float3 barycentrics = float3(1.f - attributes.Bary.x - attributes.Bary.y, attributes.Bary.x, attributes.Bary.y);
-
-    const float3 A = float3(1, 0, 0);
-    const float3 B = float3(0, 1, 0);
-    const float3 C = float3(0, 0, 1);
-
-    float3 hitColor = A * barycentrics.x + B * barycentrics.y + C * barycentrics.z;
-
     uint triangleColorPalette = 1024;
     float instanceId = lerp(0.1, 0.4, float(InstanceIndex() % 4) / 4);
     float id = normalize(float3(float(PrimitiveIndex() % triangleColorPalette), 0, triangleColorPalette)).r;
     payload.ColorAndDistance = float4(float3(saturate(id * (0.8 - instanceId)), saturate(id * min(instanceId, 0.2)), saturate(id * (0.4 - instanceId))), RayTCurrent());
-    //payload.ColorAndDistance = float4(hitColor, RayTCurrent());
+
+    float3 direction = normalize(cbWorldInfo.dirLightDirectionAndIntensity.xyz);
+    float3 origin = WorldRayOrigin() + RayTCurrent() * WorldRayDirection() + (0.01f * direction);
+
+    // Cast a shadow ray. The direction is hardcoded currently 
+    RayDesc shadowRay;
+    shadowRay.Origin = origin;
+    shadowRay.Direction = direction;
+    shadowRay.TMin = 0.01;
+    shadowRay.TMax = 100;
+
+    ShadowHitPayload shadowPayload;
+    shadowPayload.isShadowRay = false;
+
+    // Trace the ray
+    TraceRay(gSceneBVH, RAY_FLAG_NONE, 0xFF,
+        1, // RayContributionToHitGroupIndex
+        0, // MultiplierForGeometryContributionToHitGroupIndex
+        1, // MissShaderIndex
+        shadowRay,
+        shadowPayload);
+
+    float factor = shadowPayload.isShadowRay ? 0.1 : 1.0;
+    payload.ColorAndDistance *= factor;
 }
 
 [shader("miss")]
 void Miss(inout HitInfo payload : SV_RayPayload)
 {
     payload.ColorAndDistance = float4(0.2f, 0.2f, 0.3f, -1.f);
+}
+
+[shader("closesthit")]
+void ShadowHit(inout ShadowHitPayload payload, Attributes attributes)
+{
+    payload.isShadowRay = true;
+}
+
+[shader("miss")]
+void ShadowMiss(inout ShadowHitPayload payload : SV_RayPayload)
+{
+    payload.isShadowRay = false;
 }

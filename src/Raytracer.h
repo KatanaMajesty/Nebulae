@@ -33,10 +33,18 @@ namespace Neb
 
     // All CBs require 256 alignment
     struct alignas(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT)
-    RtInstanceInfoCb
+        RtViewInfoCb
     {
-        Neb::Mat4 ViewProjInverse;
-        Neb::Vec4 CameraWorldPos;
+        Mat4 ViewProjInverse;
+        Vec4 CameraWorldPos;
+    };
+
+    struct alignas(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT)
+        RtWorldInfoCb
+    {
+        // x,y,z - dir, w - 1D intensity
+        Vec4 dirLightDirectionAndIntensity;
+        Vec3 dirLightPosition; // just to play around
     };
 
     // Here we make an assumption that the stride of a vertex in the buffer is 3 * float3
@@ -65,51 +73,57 @@ namespace Neb
         RtScene() = default;
 
         BOOL Init(nri::Swapchain* swapchain);
-        BOOL InitSceneContext(Scene* scene);
-        void InitStaticMesh(const nri::StaticMesh& staticMesh);
-        void Resize(UINT width, UINT height);
+        BOOL InitSceneContext(ID3D12GraphicsCommandList4* commandList, Scene* scene);
+        void InitStaticMesh(ID3D12GraphicsCommandList4* commandList, const nri::StaticMesh& staticMesh);
 
-        ID3D12GraphicsCommandList* GetD3D12CommandList() const { return m_commandList.Get(); };
-        void PopulateCommandLists(UINT frameIndex);
+        void Resize(UINT width, UINT height);
+        void PopulateCommandLists(ID3D12GraphicsCommandList4* commandList, UINT frameIndex, float timestep);
 
     private:
         Scene* m_scene = nullptr;
         nri::Swapchain* m_swapchain = nullptr;
 
-        void InitCommandList();
-        nri::Rc<ID3D12GraphicsCommandList4> m_commandList;
-        
-        RtAccelerationStructureBuffers CreateBLAS(std::span<const RtBLASGeometryBuffer> geometryBuffers);
-        RtAccelerationStructureBuffers CreateTLAS(std::span<const RtTLASInstanceBuffer> instanceBuffers);
+        RtAccelerationStructureBuffers CreateBLAS(ID3D12GraphicsCommandList4* commandList, std::span<const RtBLASGeometryBuffer> geometryBuffers);
+        RtAccelerationStructureBuffers CreateTLAS(
+            ID3D12GraphicsCommandList4* commandList,
+            std::span<const RtTLASInstanceBuffer> instanceBuffers,
+            const RtAccelerationStructureBuffers& updateTlas = RtAccelerationStructureBuffers());
+
         // TODO: Only works with 1 TLAS -> support more in future
-        BOOL InitAccelerationStructure(const nri::StaticMesh& staticMesh);
+        BOOL InitAccelerationStructure(ID3D12GraphicsCommandList4* commandList, const nri::StaticMesh& staticMesh);
+        BOOL UpdateAccelerationStructure(ID3D12GraphicsCommandList4* commandList, float timestep);
+        Vec3 m_currentRotation = Vec3(90.0f, 0.0f, 0.0f);
 
         RtAccelerationStructureBuffers m_blas;
         RtAccelerationStructureBuffers m_tlas;
 
         BOOL InitRaytracingPipeline();
-        nri::RootSignature m_rtGlobalRS;
         nri::Rc<ID3D12StateObject> m_rtPso;
         nri::Rc<ID3D12StateObjectProperties> m_rtPsoProperties;
+
+        enum EGlobalRoot
+        {
+            eGlobalRoot_CbViewInfo,
+            eGlobalRoot_CbWorldInfo,
+            eGlobalRoot_SrvTlas,
+            eGlobalRoot_NumRoots,
+        };
 
         enum ERaygenRoot
         {
             eRaygenRoot_OutputUav = 0,
-            // eRaygenRoot_TlasSrv,
             eRaygenRoot_NumRoots,
         };
 
-        BOOL InitRayGen(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
-        nri::Shader m_rayGen;
+        BOOL InitBasicShaders();
+        BOOL InitBasicShaderSignatures();
+        nri::Shader m_shaderBasic;
+        nri::RootSignature m_basicGlobalRS;
         nri::RootSignature m_rayGenRS;
-
-        BOOL InitRayClosestHit(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
-        nri::Shader m_rayClosestHit;
         nri::RootSignature m_rayClosestHitRS;
-
-        BOOL InitRayMiss(const std::filesystem::path& filepath, nri::EShaderModel shaderModel = nri::EShaderModel::sm_6_5);
-        nri::Shader m_rayMiss;
         nri::RootSignature m_rayMissRS;
+        nri::RootSignature m_shadowHitRS;
+        nri::RootSignature m_shadowMissRS;
 
         BOOL InitResourcesAndDescriptors(UINT width, UINT height);
         BOOL InitResources(UINT width, UINT height);
@@ -123,8 +137,10 @@ namespace Neb
         };
         nri::DescriptorHeapAllocation m_rtDescriptors; // see EDescriptorSlot enum
 
-        void InitInstanceInfoCb();
-        nri::ConstantBuffer m_cbInstanceInfo;
+        void InitConstantBuffers();
+        nri::ConstantBuffer m_cbViewInfo;
+        nri::ConstantBuffer m_cbWorldInfo;
+        RtWorldInfoCb m_worldInfo;
 
         BOOL InitShaderBindingTable();
         nv_helpers_dx12::ShaderBindingTableGenerator m_sbtGenerator;

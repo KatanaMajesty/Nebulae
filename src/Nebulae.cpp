@@ -22,19 +22,20 @@ namespace Neb
         // it is now singleton, annoying to manage it all the time
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
-        if (!m_renderer.Init(appSpec.Handle))
+        m_renderer = MakeScoped<Renderer>();
+        if (!m_renderer->Init(appSpec.Handle))
         {
             NEB_ASSERT(false, "Failed to initialize renderer");
             NEB_LOG_ERROR("Nebulae -> Failed to initialize renderer");
             return false;
         }
 
-        m_sceneImporter.Clear();
-        nri::ThrowIfFalse(m_sceneImporter.ImportScenesFromFile(appSpec.AssetsDirectory / "DamagedHelmet" / "DamagedHelmet.gltf"));
+        m_sceneImporter = MakeScoped<GLTFSceneImporter>();
+        nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "DamagedHelmet" / "DamagedHelmet.gltf"));
         // nri::ThrowIfFalse(m_sceneImporter.ImportScenesFromFile(appSpec.AssetsDirectory / "Sponza" / "Sponza.gltf"));
 
         // TODO: This is currently hardcoded as we know that very first scene will be used for rendering, thus we register its callbacks
-        Neb::Scene* scene = m_sceneImporter.ImportedScenes.front().get();
+        Neb::Scene* scene = m_sceneImporter->ImportedScenes.front().get();
         Neb::Mouse& mouse = Neb::InputManager::Get().GetMouse();
         {
             mouse.RegisterCallback<Neb::MouseEvent_Scrolled>(&Neb::Scene::OnMouseScroll, scene);
@@ -46,7 +47,7 @@ namespace Neb
             keyboard.RegisterCallback<Neb::KeyboardEvent_KeyInteraction>(&Neb::Nebulae::OnKeyInteraction, this);
         }
 
-        if (!m_renderer.InitSceneContext(scene))
+        if (!m_renderer->InitSceneContext(scene))
         {
             NEB_ASSERT(false, "Failed to initialize ray traced scene");
             NEB_LOG_ERROR("Nebulae -> Failed to init ray traced scene");
@@ -61,8 +62,8 @@ namespace Neb
 
     void Nebulae::Shutdown()
     {
-        m_sceneImporter.Clear();
-        m_renderer.Shutdown();
+        m_sceneImporter.Release();
+        m_renderer.Release();
     }
 
     void Nebulae::Render()
@@ -83,13 +84,13 @@ namespace Neb
 
         secondsSinceLastFps += timestep;
 
-        (m_isRaytracer ? m_renderer.RenderSceneRaytraced(timestep) : m_renderer.RenderScene(timestep));
+        (m_isRaytracer ? m_renderer->RenderSceneRaytraced(timestep) : m_renderer->RenderScene(timestep));
     }
 
     void Nebulae::Resize(UINT width, UINT height)
     {
         NEB_ASSERT(IsInitialized(), "Nebulae is not initialized");
-        m_renderer.Resize(width, height);
+        m_renderer->Resize(width, height);
     }
 
     void Nebulae::OnKeyInteraction(const KeyboardEvent_KeyInteraction& event)

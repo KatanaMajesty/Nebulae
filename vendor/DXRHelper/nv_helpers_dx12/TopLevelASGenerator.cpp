@@ -208,7 +208,7 @@ void TopLevelASGenerator::Generate(
   // The stored flags represent whether the AS has been built for updates or
   // not. If yes and an update is requested, the builder is told to only update
   // the AS instead of fully rebuilding it
-  if (flags == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE && updateOnly)
+  if ((flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) && updateOnly)
   {
     flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
   }

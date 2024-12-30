@@ -63,6 +63,7 @@ target_sources(DXRNebulae PRIVATE
     "src/nri/stdafx.h"
     "src/nri/Swapchain.cpp"
     "src/nri/Swapchain.h"
+    "src/util/ScopedPointer.h"
     "src/ArgumentParser.h"
     "src/Nebulae.cpp"
     "src/Nebulae.h"

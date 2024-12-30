@@ -7,6 +7,14 @@
 
 namespace Neb::nri
 {
+    
+    RootSignature RootSignature::Empty(NRIDevice* device, D3D12_ROOT_SIGNATURE_FLAGS flags)
+    {
+        RootSignature rs = RootSignature();
+        nri::ThrowIfFalse(rs.Init(device, flags), "failed to initialize empty root signature, is device context correct?");
+
+        return rs;
+    }
 
     RootSignature::RootSignature(UINT numRootParams, UINT numStaticSamplers)
     {

@@ -32,9 +32,9 @@ namespace Neb
             Nebulae& nebulae = Nebulae::Get();
             NEB_ASSERT(nebulae.IsInitialized(), "Nebulae is not initialized here");
 
-            Renderer& renderer = nebulae.GetRenderer();
-            uint32_t width = renderer.GetWidth();
-            uint32_t height = renderer.GetHeight();
+            const Renderer* renderer = nebulae.GetRenderer();
+            uint32_t width = renderer->GetWidth();
+            uint32_t height = renderer->GetHeight();
             NEB_ASSERT(width > 0 && height > 0, "Invalid cursor hotspot extents");
 
             int32_t dx = event.NextHotspot.X - event.PrevHotspot.X; // rotation across x plane (pitch)

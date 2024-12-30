@@ -28,6 +28,13 @@ namespace Neb
     public:
         static constexpr UINT NumInflightFrames = nri::Swapchain::NumBackbuffers;
 
+        Renderer() = default;
+        
+        Renderer(const Renderer&) = default;
+        Renderer& operator=(const Renderer&) = default;
+
+        ~Renderer();
+
         BOOL Init(HWND hwnd);
         BOOL InitSceneContext(Scene* scene);
 
@@ -37,9 +44,6 @@ namespace Neb
 
         UINT GetWidth() const { return m_swapchain.GetWidth(); }
         UINT GetHeight() const { return m_swapchain.GetHeight(); }
-
-        // synchronize all ongoing work, wait for its completion
-        void Shutdown();
 
     private:
         void PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene);
@@ -63,7 +67,7 @@ namespace Neb
         UINT64 m_fenceValues[NumInflightFrames];
 
         void InitCommandList();
-        nri::D3D12Rc<ID3D12GraphicsCommandList> m_commandList;
+        nri::D3D12Rc<ID3D12GraphicsCommandList4> m_commandList;
 
         enum ERendererRoots
         {

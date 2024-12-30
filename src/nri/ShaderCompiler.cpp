@@ -34,6 +34,17 @@ namespace Neb::nri
         return Shader(desc.ShaderType, result.Binary, result.Pdb, result.Reflection);
     }
 
+    Shader ShaderCompiler::CompileLibrary(std::string_view filepath, const LibraryCompilationDesc& desc, EShaderCompilationFlags flags)
+    {
+        static constexpr EShaderType Type = EShaderType::Library;
+
+        std::wstring wFilepath = std::wstring(filepath.begin(), filepath.end());
+        std::wstring_view wTargetProfile = GetTargetProfile(desc.ShaderModel, Type);
+
+        CompilationResult result = CompileInternal(wFilepath, L"", wTargetProfile, {}, flags);
+        return Shader(Type, result.Binary, result.Pdb, result.Reflection);
+    }
+
     std::wstring_view ShaderCompiler::GetTargetProfile(EShaderModel shaderModel, EShaderType shaderType) const
     {
         switch (shaderModel)
@@ -47,13 +58,7 @@ namespace Neb::nri
             case EShaderType::Mesh: return L"ms_6_5";
             case EShaderType::Pixel: return L"ps_6_5";
             case EShaderType::Compute: return L"cs_6_5";
-
-            // raytracing shader types
-            case EShaderType::RayGen:
-            case EShaderType::RayAnyHit:
-            case EShaderType::RayClosestHit:
-            case EShaderType::RayMiss:
-                return L"lib_6_5"; // identified by [shader("shadertype")] attribute
+            case EShaderType::Library: return L"lib_6_5";
 
             default: ThrowIfFalse(false); return L"";
             };

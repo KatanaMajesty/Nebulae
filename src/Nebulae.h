@@ -5,9 +5,10 @@
 #include "core/GLTFSceneImporter.h"
 #include "Renderer.h"
 #include "Raytracer.h"
+#include "util/ScopedPointer.h"
 
 // TODO: VERY TEMP, just to switch between raytracing and plain raster
-#include "input/InputManager.h"
+#include "input/Keyboard.h"
 
 namespace Neb
 {
@@ -43,11 +44,11 @@ namespace Neb
 
         const AppSpec& GetSpecification() const { return m_appSpec; }
 
-        GLTFSceneImporter& GetSceneImporter() { return m_sceneImporter; }
-        const GLTFSceneImporter& GetSceneImporter() const { return m_sceneImporter; }
+        GLTFSceneImporter* GetSceneImporter() { return m_sceneImporter; }
+        const GLTFSceneImporter* GetSceneImporter() const { return m_sceneImporter; }
 
-        Renderer& GetRenderer() { return m_renderer; }
-        const Renderer& GetRenderer() const { return m_renderer; }
+        Renderer* GetRenderer() { return m_renderer; }
+        const Renderer* GetRenderer() const { return m_renderer; }
 
         void OnKeyInteraction(const KeyboardEvent_KeyInteraction& event);
 
@@ -59,8 +60,8 @@ namespace Neb
         TimeWatch m_timeWatch;
         SecondsF32 m_lastFrameSeconds = SecondsF32(0.0f);
 
-        GLTFSceneImporter m_sceneImporter;
-        Renderer m_renderer;
+        Scoped<GLTFSceneImporter> m_sceneImporter;
+        Scoped<Renderer> m_renderer;
     };
 
 }

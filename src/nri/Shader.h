@@ -23,13 +23,7 @@ namespace Neb::nri
         Mesh,
         Pixel,
         Compute,
-
-        // Rt module -> WIP
-        // No support for intersection shaders (yet at least)
-        RayGen, // entry point
-        RayAnyHit,
-        RayClosestHit,
-        RayMiss,
+        Library, // For ray tracing module
     };
 
     // Shader is just bytecode + bytecode size. we use a tool called ShaderCompiler to get a Shader object

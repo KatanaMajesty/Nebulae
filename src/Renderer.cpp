@@ -14,6 +14,16 @@
 namespace Neb
 {
 
+    Renderer::~Renderer()
+    {
+        // synchronize all ongoing work, wait for its completion
+        this->WaitForLastFrame();
+        nri::UiContext::Get()->Shutdown();
+
+        // destroy swapchain here because of singleton destructors being called AFTER device destruction
+        m_swapchain.Shutdown();
+    }
+
     BOOL Renderer::Init(HWND hwnd)
     {
         NEB_ASSERT(hwnd != NULL, "Window handle is null");
@@ -68,11 +78,11 @@ namespace Neb
         nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
         nri::Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
 
-        ID3D12GraphicsCommandList* commandList = m_raytracer.GetD3D12CommandList();
+        ID3D12GraphicsCommandList4* commandList = m_commandList.Get();
 
         // submit work for building raytracing AS
         nri::ThrowIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
-        nri::ThrowIfFalse(m_raytracer.InitSceneContext(m_scene), "Failed to init scene context for ray tracing");
+        nri::ThrowIfFalse(m_raytracer.InitSceneContext(commandList, m_scene), "Failed to init scene context for ray tracing");
         nri::ThrowIfFailed(commandList->Close());
 
         SubmitCommandList(nri::eCommandContextType_Graphics, commandList, m_fence.Get(), m_fenceValues[frameIndex]);
@@ -124,12 +134,12 @@ namespace Neb
         nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
         nri::Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
 
-        ID3D12GraphicsCommandList* commandList = m_raytracer.GetD3D12CommandList();
+        ID3D12GraphicsCommandList4* commandList = m_commandList.Get();
 
         nri::ThrowIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
         {
             nri::UiContext::Get()->BeginFrame();
-            m_raytracer.PopulateCommandLists(frameIndex);
+            m_raytracer.PopulateCommandLists(commandList, frameIndex, timestep);
             nri::UiContext::Get()->EndFrame();
             nri::UiContext::Get()->SubmitCommands(frameIndex, commandList, &m_swapchain);
         }
@@ -155,16 +165,6 @@ namespace Neb
             m_depthStencilBuffer.Resize(width, height);
             m_raytracer.Resize(width, height); // Finally resize the ray tracing scene
         }
-    }
-
-    void Renderer::Shutdown()
-    {
-        this->WaitForLastFrame();
-        nri::UiContext::Get()->Shutdown();
-
-        // destroy swapchain here because of singleton destructors being called AFTER device destruction
-        m_swapchain.Shutdown();
-        m_swapchain = nri::Swapchain();
     }
 
     void Renderer::PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene)
@@ -278,21 +278,12 @@ namespace Neb
 
     UINT Renderer::NextFrame()
     {
-#if 0
-        UINT64 currentFenceValue = m_fenceValues[m_frameIndex];
-        m_frameIndex = m_swapchain.GetCurrentBackbufferIndex();
-        {
-            WaitForAllFrames();
-        }
-        m_fenceValues[m_frameIndex] = currentFenceValue + 1;
-#else
         UINT64 prevFenceValue = m_fenceValues[m_frameIndex];
 
         m_frameIndex = m_swapchain.GetCurrentBackbufferIndex();
         this->WaitForFrame(m_frameIndex);
 
         m_fenceValues[m_frameIndex] = prevFenceValue + 1;
-#endif
         return m_frameIndex;
     }
 
@@ -327,10 +318,15 @@ namespace Neb
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
         // Command related stuff
-        nri::ThrowIfFailed(device.GetDevice()->CreateCommandList1(0,
-            D3D12_COMMAND_LIST_TYPE_DIRECT,
-            D3D12_COMMAND_LIST_FLAG_NONE,
-            IID_PPV_ARGS(m_commandList.ReleaseAndGetAddressOf())));
+        m_commandList.Reset();
+        nri::Rc<ID3D12GraphicsCommandList> commandList;
+        {
+            nri::ThrowIfFailed(device.GetDevice()->CreateCommandList1(0,
+                D3D12_COMMAND_LIST_TYPE_DIRECT,
+                D3D12_COMMAND_LIST_FLAG_NONE,
+                IID_PPV_ARGS(commandList.ReleaseAndGetAddressOf())));
+        }
+        nri::ThrowIfFailed(commandList.As(&m_commandList));
     }
 
     void Renderer::InitRootSignatureAndShaders()

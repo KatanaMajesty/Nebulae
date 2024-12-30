@@ -24,8 +24,6 @@ namespace Neb::nri
         eShaderCompilationFlag_StripReflect = 2,
     };
 
-    // Shader define should only live in a scope of shader compilation
-    // TODO: Maybe somehow replace convertion from std::string_view to std::wstring?
     struct ShaderDefine
     {
         ShaderDefine() = default;
@@ -56,9 +54,22 @@ namespace Neb::nri
         }
 
         std::vector<ShaderDefine> Defines;
-        const std::string_view EntryPoint;
-        const EShaderModel ShaderModel;
-        const EShaderType ShaderType;
+        std::string_view EntryPoint;
+        EShaderModel ShaderModel = EShaderModel::sm_6_5;
+        EShaderType ShaderType = EShaderType::Unknown;
+    };
+
+    // DXIL library compilation description
+    //
+    struct LibraryCompilationDesc
+    {
+        LibraryCompilationDesc() = default;
+        LibraryCompilationDesc(EShaderModel shaderModel)
+            : ShaderModel(shaderModel)
+        {
+        }
+
+        EShaderModel ShaderModel = EShaderModel::sm_6_5;
     };
 
     class ShaderCompiler
@@ -73,6 +84,10 @@ namespace Neb::nri
 
         Shader CompileShader(std::string_view filepath,
             const ShaderCompilationDesc& desc,
+            EShaderCompilationFlags flags = eShaderCompilationFlag_None);
+
+        Shader CompileLibrary(std::string_view filepath,
+            const LibraryCompilationDesc& desc = LibraryCompilationDesc(),
             EShaderCompilationFlags flags = eShaderCompilationFlag_None);
 
     private:
