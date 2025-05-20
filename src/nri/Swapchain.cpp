@@ -48,7 +48,7 @@ namespace Neb::nri
             ThrowIfFailed(m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].ReleaseAndGetAddressOf())));
             NEB_SET_HANDLE_NAME(m_renderTargets[i], "Swapchain backbuffer {}", i);
 
-            device.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews.CpuAt(i));
+            device.GetD3D12Device()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews.CpuAt(i));
         }
 
         // Get description of swapchain to easily obtain dimensions
@@ -88,7 +88,7 @@ namespace Neb::nri
             ThrowIfFailed(m_dxgiSwapchain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].GetAddressOf())));
             NEB_SET_HANDLE_NAME(m_renderTargets[i], "Swapchain backbuffer {}", i);
 
-            device.GetDevice()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews.CpuAt(i));
+            device.GetD3D12Device()->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, m_renderTargetViews.CpuAt(i));
         }
 
         // Get description of swapchain to easily obtain dimensions

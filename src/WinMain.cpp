@@ -247,6 +247,7 @@ int32_t main(int argc, char* argv[])
     Neb::Config::SetValue(Neb::EConfigKey::EnableDebugLayer,        argParser.Get<bool>(/*key*/ "enable-debug-layer",       /*default-value*/ true));
     Neb::Config::SetValue(Neb::EConfigKey::EnableGpuValidation,     argParser.Get<bool>(/*key*/ "enable-gpu-validation",    /*default-value*/ true));
     Neb::Config::SetValue(Neb::EConfigKey::EnableDeviceDebugging,   argParser.Get<bool>(/*key*/ "enable-device-debug",      /*default-value*/ true));
+    Neb::Config::SetValue(Neb::EConfigKey::EnableNvDriver,          argParser.Get<bool>(/*key*/ "enable-nv-driver",         /*default-value*/ true));
     /* clang-format on */
 
     constexpr const char* lpClassName = "DXRNebulae";

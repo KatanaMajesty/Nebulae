@@ -59,7 +59,7 @@ namespace Neb::nri
             .Flags = D3D12_DSV_FLAG_NONE,
             .Texture2D = D3D12_TEX2D_DSV{ .MipSlice = 0 }
         };
-        device.GetDevice()->CreateDepthStencilView(m_bufferAllocation->GetResource(), &dsvDesc, m_depthStencilView.CpuAt(0));
+        device.GetD3D12Device()->CreateDepthStencilView(m_bufferAllocation->GetResource(), &dsvDesc, m_depthStencilView.CpuAt(0));
     }
 
 }

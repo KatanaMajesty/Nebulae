@@ -4,6 +4,8 @@
 
 // Chill here for getting started -> https://learn.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component
 
+#include "nri/nvidia/NvApi.h"
+
 namespace Neb::nri
 {
     NRIDevice& NRIDevice::Get()
@@ -19,6 +21,9 @@ namespace Neb::nri
 
     void NRIDevice::Deinit()
     {
+        if (NvDriver::Get()->IsValid())
+            NvDriver::Get()->ShutD3D12();
+
         if (m_debugDevice)
         {
             D3D12_RLDO_FLAGS rldoFlags = D3D12_RLDO_DETAIL;
@@ -51,10 +56,19 @@ namespace Neb::nri
 
         // Query appropriate dxgi adapter
         ThrowIfFalse(QueryMostSuitableDeviceAdapter());
+        ThrowIfFalse(QueryDeviceAdapterSpec());
 
         Rc<ID3D12Device> device;
         ThrowIfFailed(D3D12CreateDevice(m_dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(device.GetAddressOf())));
         ThrowIfFailed(device->QueryInterface(IID_PPV_ARGS(m_device.ReleaseAndGetAddressOf())));
+
+        if (m_deviceSpecification.vendor == EDeviceVendor::NVidia && Config::GetValue<bool>(EConfigKey::EnableNvDriver))
+        {
+            if (!NvDriver::Get()->InitD3D12(m_device))
+            {
+                NEB_LOG_ERROR("Could not initialize D3D12 Nvidia driver");
+            }
+        }
 
         this->InitDebugDeviceContext();
 
@@ -119,6 +133,26 @@ namespace Neb::nri
         }
 
         return m_dxgiAdapter != NULL ? TRUE : FALSE;
+    }
+
+    BOOL NRIDevice::QueryDeviceAdapterSpec()
+    {
+        NEB_ASSERT(m_dxgiAdapter != NULL);
+
+        DXGI_ADAPTER_DESC1 desc = {};
+        ThrowIfFailed(m_dxgiAdapter->GetDesc1(&desc), "Could not get DXGI Adapter's desc");
+
+        m_deviceSpecification = NRIDeviceSpecification();
+
+        // pick vendor
+        switch (desc.VendorId)
+        {
+        case (UINT)EDeviceVendor::NVidia: m_deviceSpecification.vendor = EDeviceVendor::NVidia; break;
+        case (UINT)EDeviceVendor::AMD: m_deviceSpecification.vendor = EDeviceVendor::AMD; break;
+        default: m_deviceSpecification.vendor = EDeviceVendor::Something;
+        }
+
+        return TRUE;
     }
 
     namespace validation
@@ -323,7 +357,7 @@ namespace Neb::nri
         for (UINT i = 0; i < D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES; ++i)
         {
             D3D12_DESCRIPTOR_HEAP_TYPE type = (D3D12_DESCRIPTOR_HEAP_TYPE)i;
-            m_descriptorHeaps[i].Init(GetDevice(), D3D12_DESCRIPTOR_HEAP_DESC{
+            m_descriptorHeaps[i].Init(GetD3D12Device(), D3D12_DESCRIPTOR_HEAP_DESC{
                                                        .Type = type,
                                                        .NumDescriptors = NumDescriptors[type],
                                                        .Flags = Flags[type],

@@ -45,6 +45,9 @@ namespace Neb::nri
 
     struct StaticMesh
     {
+        // for the time being, static meshes themselves store transformation matrices
+        Mat4 InstanceToWorld;
+
         // Static mesh is pretty much an array of submeshes
         std::vector<StaticSubmesh> Submeshes;
         std::vector<Material> SubmeshMaterials; // TODO: Maybe replace with proxies, figure out best way to cache

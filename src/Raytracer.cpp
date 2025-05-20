@@ -78,7 +78,7 @@ namespace Neb
             }
         }
 
-        nri::ThrowIfFalse(this->UpdateAccelerationStructure(commandList, timestep));
+        nri::ThrowIfFalse(this->UpdateAccelerationStructure(commandList, m_scene->StaticMeshes.front(), timestep));
 
         std::array heaps = { device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).GetHeap() };
         commandList->SetDescriptorHeaps(static_cast<UINT>(heaps.size()), heaps.data());
@@ -163,211 +163,184 @@ namespace Neb
         }
     }
 
-    RtAccelerationStructureBuffers RtScene::CreateBLAS(ID3D12GraphicsCommandList4* commandList, std::span<const RtBLASGeometryBuffer> geometryBuffers)
-    {
-        nv_helpers_dx12::BottomLevelASGenerator blasGenerator;
+    //RtAccelerationStructureBuffers RtScene::CreateBLAS(ID3D12GraphicsCommandList4* commandList, std::span<const RTBlasGeometryBuffer> geometryBuffers)
+    //{
+    //    nv_helpers_dx12::BottomLevelASGenerator blasGenerator;
 
-        for (const RtBLASGeometryBuffer& geometry : geometryBuffers)
-        {
-            NEB_ASSERT(geometry.VertexStride == sizeof(Vec3), "Only support for vertex stride of {}", sizeof(Vec3));
-            NEB_ASSERT(geometry.IndexStride == sizeof(uint16_t) || geometry.IndexStride == sizeof(uint32_t), "Incorrect index stride, should be either UINT16 or UINT32");
-            DXGI_FORMAT indexFormat = (geometry.IndexStride == sizeof(uint16_t)) ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
-            blasGenerator.AddVertexBuffer(
-                geometry.PositionBuffer.Get(), geometry.VertexOffsetInBytes, geometry.NumVertices, geometry.VertexStride,
-                geometry.IndexBuffer.Get(), geometry.IndexOffsetInBytes, geometry.NumIndices, indexFormat,
-                nullptr, 0, // we are not using transform buffers in BLAS
-                true);
-        }
+    //    for (const RTBlasGeometryBuffer& geometry : geometryBuffers)
+    //    {
+    //        NEB_ASSERT(geometry.VertexStride == sizeof(Vec3), "Only support for vertex stride of {}", sizeof(Vec3));
+    //        NEB_ASSERT(geometry.IndexStride == sizeof(uint16_t) || geometry.IndexStride == sizeof(uint32_t), "Incorrect index stride, should be either UINT16 or UINT32");
+    //        DXGI_FORMAT indexFormat = (geometry.IndexStride == sizeof(uint16_t)) ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
+    //        blasGenerator.AddVertexBuffer(
+    //            geometry.PositionBuffer.Get(), geometry.VertexOffsetInBytes, geometry.NumVertices, geometry.VertexStride,
+    //            geometry.IndexBuffer.Get(), geometry.IndexOffsetInBytes, geometry.NumIndices, indexFormat,
+    //            nullptr, 0, // we are not using transform buffers in BLAS
+    //            true);
+    //    }
 
-        nri::NRIDevice& device = nri::NRIDevice::Get();
+    //    nri::NRIDevice& device = nri::NRIDevice::Get();
 
-        // we do not update geometry (only static meshes)
-        UINT64 numScratchBytes;
-        UINT64 numBLASBytes;
-        blasGenerator.ComputeASBufferSizes(device.GetDevice(), false, &numScratchBytes, &numBLASBytes);
+    //    // we do not update geometry (only static meshes)
+    //    UINT64 numScratchBytes;
+    //    UINT64 numBLASBytes;
+    //    blasGenerator.ComputeASBufferSizes(device.GetD3D12Device(), false, &numScratchBytes, &numBLASBytes);
 
-        D3D12MA::Allocator* allocator = device.GetResourceAllocator();
-        D3D12MA::ALLOCATION_DESC allocDesc = {
-            .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
-            .HeapType = D3D12_HEAP_TYPE_DEFAULT
-        };
+    //    D3D12MA::Allocator* allocator = device.GetResourceAllocator();
+    //    D3D12MA::ALLOCATION_DESC allocDesc = {
+    //        .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
+    //        .HeapType = D3D12_HEAP_TYPE_DEFAULT
+    //    };
 
-        RtAccelerationStructureBuffers result;
+    //    RtAccelerationStructureBuffers result;
 
-        // Create scratch buffer
-        {
-            D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numScratchBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    //    // Create scratch buffer
+    //    {
+    //        D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numScratchBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 
-            // Ignoring InitialState D3D12_RESOURCE_STATE_UNORDERED_ACCESS.
-            // Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
-            nri::Rc<D3D12MA::Allocation> allocation;
-            nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_COMMON,
-                nullptr,
-                allocation.GetAddressOf(),
-                IID_PPV_ARGS(result.ScratchBuffer.GetAddressOf())));
-        }
+    //        // Ignoring InitialState D3D12_RESOURCE_STATE_UNORDERED_ACCESS.
+    //        // Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
+    //        nri::Rc<D3D12MA::Allocation> allocation;
+    //        nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_COMMON,
+    //            nullptr,
+    //            allocation.GetAddressOf(),
+    //            IID_PPV_ARGS(result.ScratchBuffer.GetAddressOf())));
+    //    }
 
-        // Create ASBuffer
-        {
-            D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numBLASBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-            nri::Rc<D3D12MA::Allocation> allocation;
-            nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
-                nullptr,
-                allocation.GetAddressOf(),
-                IID_PPV_ARGS(result.ASBuffer.GetAddressOf())));
-        }
+    //    // Create ASBuffer
+    //    {
+    //        D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numBLASBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    //        nri::Rc<D3D12MA::Allocation> allocation;
+    //        nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+    //            nullptr,
+    //            allocation.GetAddressOf(),
+    //            IID_PPV_ARGS(result.ASBuffer.GetAddressOf())));
+    //    }
 
-        blasGenerator.Generate(commandList, result.ScratchBuffer.Get(), result.ASBuffer.Get());
-        return result;
-    }
+    //    blasGenerator.Generate(commandList, result.ScratchBuffer.Get(), result.ASBuffer.Get());
+    //    return result;
+    //}
 
-    RtAccelerationStructureBuffers RtScene::CreateTLAS(ID3D12GraphicsCommandList4* commandList, std::span<const RtTLASInstanceBuffer> instanceBuffers, const RtAccelerationStructureBuffers& updateTlas)
-    {
-        nv_helpers_dx12::TopLevelASGenerator tlasGenerator;
-        for (UINT i = 0; i < instanceBuffers.size(); ++i)
-        {
-            const RtTLASInstanceBuffer& instance = instanceBuffers[i];
-            tlasGenerator.AddInstance(instance.ASBuffer.Get(), instance.Transformation, i, 0);
-        }
+    //RtAccelerationStructureBuffers RtScene::CreateTLAS(ID3D12GraphicsCommandList4* commandList, std::span<const RTTopLevelInstanceBuffer> instanceBuffers, const RtAccelerationStructureBuffers& updateTlas)
+    //{
+    //    nv_helpers_dx12::TopLevelASGenerator tlasGenerator;
+    //    for (UINT i = 0; i < instanceBuffers.size(); ++i)
+    //    {
+    //        const RTTopLevelInstanceBuffer& instance = instanceBuffers[i];
+    //        tlasGenerator.AddInstance(instance.ASBuffer.Get(), instance.Transformation, i, 0);
+    //    }
 
-        RtAccelerationStructureBuffers result = updateTlas;
-        const bool updateOnly = (result.ASBuffer != nullptr);
+    //    RtAccelerationStructureBuffers result = updateTlas;
+    //    const bool updateOnly = (result.ASBuffer != nullptr);
 
-        nri::NRIDevice& device = nri::NRIDevice::Get();
+    //    nri::NRIDevice& device = nri::NRIDevice::Get();
 
-        [[maybe_unused]] UINT64 numScratchBytes;
-        [[maybe_unused]] UINT64 numTLASBytes;
-        [[maybe_unused]] UINT64 numInstanceDescriptorBytes;
-        tlasGenerator.ComputeASBufferSizes(device.GetDevice(), true, &numScratchBytes, &numTLASBytes, &numInstanceDescriptorBytes);
+    //    [[maybe_unused]] UINT64 numScratchBytes;
+    //    [[maybe_unused]] UINT64 numTLASBytes;
+    //    [[maybe_unused]] UINT64 numInstanceDescriptorBytes;
+    //    tlasGenerator.ComputeASBufferSizes(device.GetD3D12Device(), true, &numScratchBytes, &numTLASBytes, &numInstanceDescriptorBytes);
 
-        D3D12MA::Allocator* allocator = device.GetResourceAllocator();
-        D3D12MA::ALLOCATION_DESC allocDesc = { .HeapType = D3D12_HEAP_TYPE_DEFAULT };
+    //    D3D12MA::Allocator* allocator = device.GetResourceAllocator();
+    //    D3D12MA::ALLOCATION_DESC allocDesc = { .HeapType = D3D12_HEAP_TYPE_DEFAULT };
 
-        // Create scratch buffer
-        if (!result.ScratchBuffer)
-        {
-            D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numScratchBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    //    // Create scratch buffer
+    //    if (!result.ScratchBuffer)
+    //    {
+    //        D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numScratchBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 
-            // Ignoring InitialState D3D12_RESOURCE_STATE_UNORDERED_ACCESS.
-            // Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
-            nri::Rc<D3D12MA::Allocation> allocation;
-            nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_COMMON,
-                nullptr,
-                allocation.GetAddressOf(),
-                IID_PPV_ARGS(result.ScratchBuffer.GetAddressOf())));
-        }
+    //        // Ignoring InitialState D3D12_RESOURCE_STATE_UNORDERED_ACCESS.
+    //        // Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
+    //        nri::Rc<D3D12MA::Allocation> allocation;
+    //        nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_COMMON,
+    //            nullptr,
+    //            allocation.GetAddressOf(),
+    //            IID_PPV_ARGS(result.ScratchBuffer.GetAddressOf())));
+    //    }
 
-        // Create ASBuffer
-        if (!result.ASBuffer)
-        {
-            D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numTLASBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-            nri::Rc<D3D12MA::Allocation> allocation;
-            nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
-                nullptr,
-                allocation.GetAddressOf(),
-                IID_PPV_ARGS(result.ASBuffer.GetAddressOf())));
-        }
+    //    // Create ASBuffer
+    //    if (!result.ASBuffer)
+    //    {
+    //        D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numTLASBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    //        nri::Rc<D3D12MA::Allocation> allocation;
+    //        nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+    //            nullptr,
+    //            allocation.GetAddressOf(),
+    //            IID_PPV_ARGS(result.ASBuffer.GetAddressOf())));
+    //    }
 
-        // Instance descriptor buffer
-        if (!result.InstanceDescriptorBuffer)
-        {
-            D3D12MA::ALLOCATION_DESC instanceAllocDesc = { .HeapType = D3D12_HEAP_TYPE_UPLOAD };
-            D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numInstanceDescriptorBytes, D3D12_RESOURCE_FLAG_NONE);
+    //    // Instance descriptor buffer
+    //    if (!result.InstanceDescriptorBuffer)
+    //    {
+    //        D3D12MA::ALLOCATION_DESC instanceAllocDesc = { .HeapType = D3D12_HEAP_TYPE_UPLOAD };
+    //        D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(numInstanceDescriptorBytes, D3D12_RESOURCE_FLAG_NONE);
 
-            nri::Rc<D3D12MA::Allocation> allocation;
-            nri::ThrowIfFailed(allocator->CreateResource(&instanceAllocDesc, &desc, D3D12_RESOURCE_STATE_COMMON,
-                nullptr,
-                allocation.GetAddressOf(),
-                IID_PPV_ARGS(result.InstanceDescriptorBuffer.GetAddressOf())));
-        }
+    //        nri::Rc<D3D12MA::Allocation> allocation;
+    //        nri::ThrowIfFailed(allocator->CreateResource(&instanceAllocDesc, &desc, D3D12_RESOURCE_STATE_COMMON,
+    //            nullptr,
+    //            allocation.GetAddressOf(),
+    //            IID_PPV_ARGS(result.InstanceDescriptorBuffer.GetAddressOf())));
+    //    }
 
-        tlasGenerator.Generate(commandList,
-            result.ScratchBuffer.Get(),
-            result.ASBuffer.Get(),
-            result.InstanceDescriptorBuffer.Get(),
-            updateOnly,                                   // only update AS using D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE
-            updateOnly ? result.ASBuffer.Get() : nullptr, // previous TLAS for refit
-            D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE);
+    //    tlasGenerator.Generate(commandList,
+    //        result.ScratchBuffer.Get(),
+    //        result.ASBuffer.Get(),
+    //        result.InstanceDescriptorBuffer.Get(),
+    //        updateOnly,                                   // only update AS using D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE
+    //        updateOnly ? result.ASBuffer.Get() : nullptr, // previous TLAS for refit
+    //        D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE);
 
-        return result;
-    }
+    //    return result;
+    //}
 
     BOOL RtScene::InitAccelerationStructure(ID3D12GraphicsCommandList4* commandList, const nri::StaticMesh& staticMesh)
     {
-        RtAccelerationStructureBuffers blas, tlas;
-        {
-            // Create BLAS
-            std::vector<RtBLASGeometryBuffer> geometryBuffers;
-            geometryBuffers.reserve(staticMesh.Submeshes.size());
+        m_blas = m_asBuilder.CreateBlas(commandList, m_asBuilder.QueryGeometryDescArray(staticMesh));
 
-            for (const nri::StaticSubmesh& submesh : staticMesh.Submeshes)
-            {
-                geometryBuffers.push_back(RtBLASGeometryBuffer{
-                    // Position buffer data
-                    .PositionBuffer = submesh.AttributeBuffers[nri::eAttributeType_Position],
-                    .VertexStride = submesh.AttributeStrides[nri::eAttributeType_Position],
-                    .VertexOffsetInBytes = submesh.AttributeOffsets[nri::eAttributeType_Position],
-                    .NumVertices = submesh.NumVertices,
-                    // Index buffer data (required for Nebulae)
-                    .IndexBuffer = submesh.IndexBuffer,
-                    .IndexStride = submesh.IndicesStride,
-                    .IndexOffsetInBytes = submesh.IndicesOffset,
-                    .NumIndices = submesh.NumIndices });
-            }
-            blas = CreateBLAS(commandList, geometryBuffers);
+        nri::RTTopLevelInstance instance = {
+            .blasAccelerationStructure = m_blas.accelerationStructureBuffer,
+            .transformation = staticMesh.InstanceToWorld,
+            .instanceID = 0, // TODO: Figure it out
+            .hitGroupIndex = 0, // TODO: Change to actually match SBT entry
+            .flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE,
+        };
 
-            std::vector<Mat4> instanceTransformations;
-            {
-                Vec3 rotationAngles = Vec3(ToRadians(m_currentRotation.x), ToRadians(m_currentRotation.y), ToRadians(m_currentRotation.z));
-
-                Mat4 translation = Mat4::CreateTranslation(Vec3(0.0f, 0.0f, 0.0f));
-                Mat4 rotation = Mat4::CreateFromYawPitchRoll(rotationAngles);
-                Mat4 scale = Mat4::CreateScale(Vec3(1.0f));
-
-                // TODO: expects row-major, providing column-major. I dont get it (DirectXMath operates in row-major)
-                Mat4 instanceToWorld = Mat4(scale * rotation * translation);
-                instanceTransformations.push_back(instanceToWorld.Transpose());
-            }
-
-            std::vector<RtTLASInstanceBuffer> instanceBuffers;
-            instanceBuffers.reserve(instanceTransformations.size()); // N instances
-
-            for (size_t instanceID = 0; instanceID < instanceTransformations.size(); ++instanceID)
-            {
-                instanceBuffers.push_back(RtTLASInstanceBuffer{
-                    .ASBuffer = blas.ASBuffer,
-                    .Transformation = instanceTransformations[instanceID],
-                });
-            }
-            tlas = CreateTLAS(commandList, instanceBuffers);
-        }
-
-        // Member assignments
-        m_blas = std::move(blas);
-        m_tlas = std::move(tlas);
+        m_tlas = m_asBuilder.CreateTlas(commandList, std::span(&instance, 1));
         return true;
     }
 
-    BOOL RtScene::UpdateAccelerationStructure(ID3D12GraphicsCommandList4* commandList, float timestep)
+    BOOL RtScene::UpdateAccelerationStructure(ID3D12GraphicsCommandList4* commandList, const nri::StaticMesh& staticMesh, float timestep)
     {
         // 30 degrees per second
         m_currentRotation.y += 30.0f * timestep;
-        Vec3 rotationAngles = Vec3(ToRadians(m_currentRotation.x), ToRadians(m_currentRotation.y), ToRadians(m_currentRotation.z));
+        Quaternion timeRotation = Quaternion::CreateFromYawPitchRoll(Vec3(
+            ToRadians(m_currentRotation.y),
+            ToRadians(m_currentRotation.x),
+            ToRadians(m_currentRotation.z)));
 
-        Mat4 translation = Mat4::CreateTranslation(Vec3(0.0f, 0.0f, 0.0f));
-        Mat4 rotation = Mat4::CreateFromYawPitchRoll(rotationAngles);
-        Mat4 scale = Mat4::CreateScale(Vec3(1.0f));
+        // decompose static meshes' SRT
+        Vec3 meshScale;
+        Vec3 meshTranslation;
+        Quaternion meshRotation;
 
-        Mat4 instanceToWorld = Mat4(scale * rotation * translation).Transpose();
+        Mat4 transformation = staticMesh.InstanceToWorld;
+        nri::ThrowIfFalse(transformation.Decompose(meshScale, meshRotation, meshTranslation), "Couldnt decompose the transformation matrix for TLAS update");
 
-        std::array transformations = {
-            RtTLASInstanceBuffer{
-                .ASBuffer = m_blas.ASBuffer,
-                .Transformation = instanceToWorld,
-            }
+        Quaternion combinedRotaion = meshRotation * timeRotation;
+
+        Mat4 t = Mat4::CreateTranslation(meshTranslation);
+        Mat4 r = Mat4::CreateFromQuaternion(combinedRotaion);
+        Mat4 s = Mat4::CreateScale(meshScale);
+        Mat4 instanceToWorld = Mat4(s * r * t).Transpose();
+
+        nri::RTTopLevelInstance instance = {
+            .blasAccelerationStructure = m_blas.accelerationStructureBuffer,
+            .transformation = staticMesh.InstanceToWorld.Transpose(),
+            .instanceID = 0,    // TODO: Figure it out
+            .hitGroupIndex = 0, // TODO: Change to actually match SBT entry
+            .flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE,
         };
 
-        CreateTLAS(commandList, transformations, m_tlas);
+        m_tlas = m_asBuilder.CreateTlas(commandList, std::span(&instance, 1), m_tlas);
         return true;
     }
 
@@ -385,7 +358,7 @@ namespace Neb
         //      fix that either in their src or when moving away from Nvidia's helpers
 
         /* clang-format off */
-        nv_helpers_dx12::RayTracingPipelineGenerator pipelineGenerator(device.GetDevice());
+        nv_helpers_dx12::RayTracingPipelineGenerator pipelineGenerator(device.GetD3D12Device());
         pipelineGenerator.AddLibrary(m_shaderBasic.GetDxcBinaryBlob(),
             { 
                 L"RayGen",
@@ -480,16 +453,16 @@ namespace Neb
             .MipSlice = 0,
             .PlaneSlice = 0,
         };
-        device.GetDevice()->CreateUnorderedAccessView(m_outputBuffer.Get(), nullptr, &uavDesc, m_rtDescriptors.CpuAt(eDescriptorSlot_OutputBufferUav));
+        device.GetD3D12Device()->CreateUnorderedAccessView(m_outputBuffer.Get(), nullptr, &uavDesc, m_rtDescriptors.CpuAt(eDescriptorSlot_OutputBufferUav));
 
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Format = DXGI_FORMAT_UNKNOWN;
         srvDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srvDesc.RaytracingAccelerationStructure = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_SRV{
-            .Location = m_tlas.ASBuffer->GetGPUVirtualAddress()
+            .Location = m_tlas.accelerationStructureBuffer->GetGPUVirtualAddress()
         };
-        device.GetDevice()->CreateShaderResourceView(nullptr, &srvDesc, m_rtDescriptors.CpuAt(eDescriptorSlot_TlasSrv));
+        device.GetD3D12Device()->CreateShaderResourceView(nullptr, &srvDesc, m_rtDescriptors.CpuAt(eDescriptorSlot_TlasSrv));
 
         InitConstantBuffers();
         return true;

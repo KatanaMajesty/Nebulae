@@ -5,18 +5,22 @@
 
 // https://developer.nvidia.com/dx12-dos-and-donts
 
+#define NEBULAE_USE_DEBUGGABLE_SHADERS 0
+
 namespace Neb::nri
 {
 
     enum class EShaderModel
     {
-        sm_6_5, // nothing else is needed
+        Unknown = 0,
+        sm_6_3 = 63,
+        sm_6_5 = 65, // nothing else is needed
     };
 
     // We do not use Hull, Domain, Geometry shaders here (at least for now)
     enum class EShaderType
     {
-        Unknown,
+        Unknown = 0,
 
         Vertex,
         Amplification,
@@ -40,9 +44,10 @@ namespace Neb::nri
         }
 
         EShaderType GetType() const { return m_type; }
+        EShaderModel GetModel() const { return m_model; }
         BOOL HasBinary() const { return m_binary != nullptr; }
 
-        D3D12_SHADER_BYTECODE GetBinaryBytecode() { return CD3DX12_SHADER_BYTECODE(GetBinaryPointer(), GetBinarySize()); }
+        D3D12_SHADER_BYTECODE GetBinaryBytecode() const { return CD3DX12_SHADER_BYTECODE(GetBinaryPointer(), GetBinarySize()); }
         LPVOID GetBinaryPointer() const;
         SIZE_T GetBinarySize() const;
 
@@ -52,6 +57,7 @@ namespace Neb::nri
 
     private:
         EShaderType m_type = EShaderType::Unknown;
+        EShaderModel m_model = EShaderModel::Unknown;
         D3D12Rc<IDxcBlob> m_binary;
         D3D12Rc<IDxcBlob> m_pdb;
         D3D12Rc<IDxcBlob> m_reflection;

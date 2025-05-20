@@ -10,6 +10,10 @@
 #include "nri/Swapchain.h"
 #include "nri/stdafx.h"
 
+// WIP: refactored raytracer
+#include "nri/raytracing/RTAccelerationStructureBuilder.h"
+#include "nri/raytracing/RTCommon.h"
+
 #include "DXRHelper/nv_helpers_dx12/ShaderBindingTableGenerator.h"
 
 #include <vector>
@@ -21,50 +25,50 @@ namespace Neb
 
     // TODO: for 27.07 -> https://developer.nvidia.com/rtx/raytracing/dxr/DX12-Raytracing-tutorial-Part-2
     // DirectX raytracing (DXR) functional specification on GitHub: https://microsoft.github.io/DirectX-Specs/d3d/Raytracing.html#acceleration-structure-memory-restrictions
-
-    // TODO: I dont think we need that structure to be generic for BLAS/TLAS as in former we only care about ASBuffer
-    //      Probably rethink that and rename to smth like RtTLASBuffers?
-    struct RtAccelerationStructureBuffers
-    {
-        nri::Rc<ID3D12Resource> ScratchBuffer;
-        nri::Rc<ID3D12Resource> ASBuffer; // the actual buffer to hold AS
-        nri::Rc<ID3D12Resource> InstanceDescriptorBuffer;
-    }; // RTAccelerationStructureBuffers struct
+    //
+    // for large-scene resource management bindless indexing should be used
+    // https://stackoverflow.com/questions/65794461/dxr-descriptor-heap-management-for-raytracing
 
     // All CBs require 256 alignment
-    struct alignas(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT)
-        RtViewInfoCb
+    CONSTANT_BUFFER_STRUCT RtViewInfoCb
     {
         Mat4 ViewProjInverse;
         Vec4 CameraWorldPos;
     };
 
-    struct alignas(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT)
-        RtWorldInfoCb
+    CONSTANT_BUFFER_STRUCT RtWorldInfoCb
     {
         // x,y,z - dir, w - 1D intensity
         Vec4 dirLightDirectionAndIntensity;
         Vec3 dirLightPosition; // just to play around
     };
 
-    // Here we make an assumption that the stride of a vertex in the buffer is 3 * float3
-    struct RtBLASGeometryBuffer
+    class RaytracingDescriptorArray
     {
-        nri::Rc<ID3D12Resource> PositionBuffer;
-        UINT VertexStride = 0;
-        UINT64 VertexOffsetInBytes = 0;
-        UINT NumVertices = 0;
+        // CONCEPT:
+        // right now no need for material/attribute descriptors in the raytraced scene
+        // basically tlas-to-blas index mapping
+        // 
+        // Q: do we want to store all the material descriptors for instances in a single place?
+        // A1: probably not? because mesh' (and submesh') descriptors are stored separately from each other and its a mess honestly
+        //
+        // S1: create separete (new) descriptors for the textures that are actually needed and are used -> so it would make 2 SRVs for the same Normal Map for instance
+        //      -> thus need to create a container of ALL the textures that are used in the scene! (not per-instance or per-mesh containers)
+        //      -> the philosophy would be to store EXACTLY ONE extra descriptor per BLAS (per actual submesh)
+        //              -> the problem with this would be that there might be several instances of the same BLAS which would mess up instance ID addressing
+        //                 so we cannot use instance IDs to map to those extra descriptors
+        //              S2: instead of that we would have 1 more separate buffer to map from instance ID to correct index in the descriptor heap
+    };
 
-        nri::Rc<ID3D12Resource> IndexBuffer;
-        UINT IndexStride = 0;
-        UINT64 IndexOffsetInBytes = 0;
-        UINT NumIndices = 0; // assumed to be uint32_t indices
-    };                       // RtBLASGeometryBuffer struct
+    // How to get vertex data other than positions: https://www.gamedev.net/forums/topic/709764-how-to-get-vertex-data-other-than-positions/
+    // https://github.com/TheRealMJP/DXRPathTracer/blob/master/DXRPathTracer/RayTrace.hlsl#L447
 
-    struct RtTLASInstanceBuffer
+    
+
+    // render the 'raytraced scene'
+    class Raytracer
     {
-        nri::Rc<ID3D12Resource> ASBuffer;
-        Mat4 Transformation;
+
     };
 
     class RtScene
@@ -83,19 +87,14 @@ namespace Neb
         Scene* m_scene = nullptr;
         nri::Swapchain* m_swapchain = nullptr;
 
-        RtAccelerationStructureBuffers CreateBLAS(ID3D12GraphicsCommandList4* commandList, std::span<const RtBLASGeometryBuffer> geometryBuffers);
-        RtAccelerationStructureBuffers CreateTLAS(
-            ID3D12GraphicsCommandList4* commandList,
-            std::span<const RtTLASInstanceBuffer> instanceBuffers,
-            const RtAccelerationStructureBuffers& updateTlas = RtAccelerationStructureBuffers());
-
         // TODO: Only works with 1 TLAS -> support more in future
         BOOL InitAccelerationStructure(ID3D12GraphicsCommandList4* commandList, const nri::StaticMesh& staticMesh);
-        BOOL UpdateAccelerationStructure(ID3D12GraphicsCommandList4* commandList, float timestep);
+        BOOL UpdateAccelerationStructure(ID3D12GraphicsCommandList4* commandList, const nri::StaticMesh& staticMesh, float timestep);
         Vec3 m_currentRotation = Vec3(90.0f, 0.0f, 0.0f);
 
-        RtAccelerationStructureBuffers m_blas;
-        RtAccelerationStructureBuffers m_tlas;
+        nri::RTAccelerationStructureBuilder m_asBuilder;
+        nri::RTBlasBuffers m_blas;
+        nri::RTTlasBuffers m_tlas;
 
         BOOL InitRaytracingPipeline();
         nri::Rc<ID3D12StateObject> m_rtPso;

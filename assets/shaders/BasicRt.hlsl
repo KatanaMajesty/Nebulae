@@ -97,7 +97,7 @@ void ClosestHit(inout HitInfo payload, Attributes attributes)
     payload.ColorAndDistance = float4(float3(saturate(id * (0.8 - instanceId)), saturate(id * min(instanceId, 0.2)), saturate(id * (0.4 - instanceId))), RayTCurrent());
 
     float3 direction = normalize(cbWorldInfo.dirLightDirectionAndIntensity.xyz);
-    float3 origin = WorldRayOrigin() + RayTCurrent() * WorldRayDirection() + (0.01f * direction);
+    float3 origin = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
 
     // Cast a shadow ray. The direction is hardcoded currently 
     RayDesc shadowRay;

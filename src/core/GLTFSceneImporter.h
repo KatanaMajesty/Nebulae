@@ -1,14 +1,16 @@
 #pragma once
 
-#include <filesystem>
-#include <vector>
-#include <memory>
-#include <TinyGLTF/tiny_gltf.h>
-
 #include "Scene.h"
 #include "../nri/stdafx.h"
 #include "../nri/DescriptorHeapAllocation.h"
 #include "../nri/CommandAllocatorPool.h"
+#include "../util/ScopedPointer.h"
+
+#include <TinyGLTF/tiny_gltf.h>
+
+#include <filesystem>
+#include <vector>
+#include <memory>
 
 namespace Neb
 {
@@ -25,7 +27,7 @@ namespace Neb
         void Clear();
 
         // Maybe make them private? Dont really care now
-        std::vector<std::unique_ptr<Scene>> ImportedScenes;
+        std::vector<Scoped<Scene>> ImportedScenes;
 
     private:
         // return false if failed to import scene. In such case, the entire scene will be discarded and
@@ -46,6 +48,8 @@ namespace Neb
         // Node processing
         bool ImportGLTFNode(Scene* scene, tinygltf::Scene& src, int32_t nodeID);
         bool ImportStaticMesh(nri::StaticMesh& mesh, tinygltf::Mesh& src);
+
+        Mat4 GetTransformationMatrix(tinygltf::Node& node);
 
         nri::D3D12Rc<ID3D12Resource> GetTextureFromGLTFScene(int32_t index);
         void InitMaterialTextureDescriptor(ID3D12Resource* resource, nri::EMaterialTextureType type, const nri::DescriptorHeapAllocation& heapAllocation);

@@ -38,6 +38,20 @@ namespace Neb::nri
         eCommandContextType_NumTypes,
     };
 
+    enum class EDeviceVendor
+    {
+        // see NRIDevice::QueryDeviceAdapterSpec
+        // https://pcisig.com/membership/member-companies
+        Something = 0,
+        NVidia = 0x10DE,
+        AMD = 0x1022,
+    };
+
+    struct NRIDeviceSpecification
+    {
+        EDeviceVendor vendor = EDeviceVendor::Something;
+    };
+
     class NRIDevice
     {
     private:
@@ -57,7 +71,7 @@ namespace Neb::nri
         IDXGIFactory6* GetDxgiFactory() { return m_dxgiFactory.Get(); }
 
         // General D3D12-related calls
-        ID3D12Device5* GetDevice() { return m_device.Get(); }
+        ID3D12Device5* GetD3D12Device() { return m_device.Get(); }
         const NRIDeviceCapabilities& GetCapabilities() const { return m_capabilities; }
 
         // Command context related calls
@@ -81,7 +95,10 @@ namespace Neb::nri
         // Most suitable adapter for device creation
         BOOL IsDxgiAdapterSuitable(IDXGIAdapter3* dxgiAdapter, const DXGI_ADAPTER_DESC1& desc) const;
         BOOL QueryMostSuitableDeviceAdapter();
+        BOOL QueryDeviceAdapterSpec();
         Rc<IDXGIAdapter3> m_dxgiAdapter;
+        NRIDeviceSpecification m_deviceSpecification;
+
         Rc<ID3D12Device5> m_device;
 
         void InitDebugDeviceContext();

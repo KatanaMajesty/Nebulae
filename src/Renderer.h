@@ -16,8 +16,7 @@
 namespace Neb
 {
 
-    // All CBs require 256 alignment
-    struct alignas(256) CbInstanceInfo
+    CONSTANT_BUFFER_STRUCT CbInstanceInfo
     {
         Neb::Mat4 InstanceToWorld;
         Neb::Mat4 ViewProj;

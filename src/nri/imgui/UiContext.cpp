@@ -112,7 +112,7 @@ namespace Neb::nri
         // Setup Renderer backend
         ImGui_ImplDX12_InitInfo initInfo = {};
         initInfo.UserData = static_cast<void*>(device);
-        initInfo.Device = device->GetDevice();
+        initInfo.Device = device->GetD3D12Device();
         initInfo.CommandQueue = device->GetCommandQueue(eCommandContextType_Graphics);
         initInfo.NumFramesInFlight = m_spec.numInflightFrames;
         initInfo.RTVFormat = m_spec.renderTargetFormat;

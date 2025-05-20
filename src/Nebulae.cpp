@@ -35,7 +35,7 @@ namespace Neb
         // nri::ThrowIfFalse(m_sceneImporter.ImportScenesFromFile(appSpec.AssetsDirectory / "Sponza" / "Sponza.gltf"));
 
         // TODO: This is currently hardcoded as we know that very first scene will be used for rendering, thus we register its callbacks
-        Neb::Scene* scene = m_sceneImporter->ImportedScenes.front().get();
+        Neb::Scene* scene = m_sceneImporter->ImportedScenes.front();
         Neb::Mouse& mouse = Neb::InputManager::Get().GetMouse();
         {
             mouse.RegisterCallback<Neb::MouseEvent_Scrolled>(&Neb::Scene::OnMouseScroll, scene);

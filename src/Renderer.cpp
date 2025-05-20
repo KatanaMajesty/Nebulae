@@ -43,7 +43,7 @@ namespace Neb
         }
 
         // Init fence
-        nri::ThrowIfFailed(nri::NRIDevice::Get().GetDevice()->CreateFence(
+        nri::ThrowIfFailed(nri::NRIDevice::Get().GetD3D12Device()->CreateFence(
             m_fenceValues[m_frameIndex],
             D3D12_FENCE_FLAG_NONE,
             IID_PPV_ARGS(m_fence.ReleaseAndGetAddressOf())));
@@ -211,29 +211,21 @@ namespace Neb
             m_commandList->SetGraphicsRootSignature(m_rootSignature.GetD3D12RootSignature());
             m_commandList->SetPipelineState(m_pipelineState.Get());
 
-            static float rotationAngleY = 0.0f;
-            // rotationAngleY += 30.0f * timestep;
-
-            const Vec3 rotationAngles = Vec3(ToRadians(90.0f), ToRadians(rotationAngleY), ToRadians(0.0f));
-
-            Mat4 translation = Mat4::CreateTranslation(Vec3(0.0f, 0.0f, 0.0f));
-            Mat4 rotation = Mat4::CreateFromYawPitchRoll(rotationAngles);
-            Mat4 scale = Mat4::CreateScale(Vec3(1.0f));
-
             const Mat4& view = scene->Camera.UpdateLookAt();
             const float aspectRatio = m_swapchain.GetWidth() / static_cast<float>(m_swapchain.GetHeight());
             Mat4 projection = Mat4::CreatePerspectiveFieldOfView(ToRadians(60.0f), aspectRatio, 0.1f, 100.0f);
 
-            CbInstanceInfo cbInstanceInfo = CbInstanceInfo{
-                .InstanceToWorld = scale * rotation * translation,
-                .ViewProj = view * projection,
-            };
-
-            std::memcpy(m_cbInstance.GetMapping<CbInstanceInfo>(frameIndex), &cbInstanceInfo, sizeof(CbInstanceInfo));
+            // Bind instance info once, will be updated later
             m_commandList->SetGraphicsRootConstantBufferView(eRendererRoots_InstanceInfo, m_cbInstance.GetGpuVirtualAddress(frameIndex));
 
             for (nri::StaticMesh& staticMesh : scene->StaticMeshes)
             {
+                CbInstanceInfo cbInstanceInfo = CbInstanceInfo{
+                    .InstanceToWorld = staticMesh.InstanceToWorld,
+                    .ViewProj = view * projection,
+                };
+                std::memcpy(m_cbInstance.GetMapping<CbInstanceInfo>(frameIndex), &cbInstanceInfo, sizeof(CbInstanceInfo));
+
                 const size_t numSubmeshes = staticMesh.Submeshes.size();
                 NEB_ASSERT(numSubmeshes == staticMesh.SubmeshMaterials.size(),
                     "Static mesh is invalid. It has {} submeshes while only {} materials",
@@ -321,7 +313,7 @@ namespace Neb
         m_commandList.Reset();
         nri::Rc<ID3D12GraphicsCommandList> commandList;
         {
-            nri::ThrowIfFailed(device.GetDevice()->CreateCommandList1(0,
+            nri::ThrowIfFailed(device.GetD3D12Device()->CreateCommandList1(0,
                 D3D12_COMMAND_LIST_TYPE_DIRECT,
                 D3D12_COMMAND_LIST_FLAG_NONE,
                 IID_PPV_ARGS(commandList.ReleaseAndGetAddressOf())));
@@ -378,7 +370,7 @@ namespace Neb
         psoDesc.SampleDesc = { 1, 0 };
         psoDesc.NodeMask = 0;
         psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
-        nri::ThrowIfFailed(device.GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(m_pipelineState.ReleaseAndGetAddressOf())));
+        nri::ThrowIfFailed(device.GetD3D12Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(m_pipelineState.ReleaseAndGetAddressOf())));
     }
 
     void Renderer::InitInstanceCb()

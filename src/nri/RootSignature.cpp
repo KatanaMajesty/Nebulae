@@ -126,7 +126,7 @@ namespace Neb::nri
 
         nri::D3D12Rc<ID3D10Blob> blob, errorBlob;
         nri::ThrowIfFailed(D3D12SerializeVersionedRootSignature(&rootSignatureDesc, blob.GetAddressOf(), errorBlob.GetAddressOf()));
-        nri::ThrowIfFailed(device->GetDevice()->CreateRootSignature(0,
+        nri::ThrowIfFailed(device->GetD3D12Device()->CreateRootSignature(0,
             blob->GetBufferPointer(),
             blob->GetBufferSize(),
             IID_PPV_ARGS(m_rootSignature.ReleaseAndGetAddressOf())));

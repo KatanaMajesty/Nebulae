@@ -12,6 +12,7 @@ namespace Neb
         EnableDebugLayer = 0,
         EnableGpuValidation,    // Debug layer MUST be enabled for this!
         EnableDeviceDebugging,  // Debug layer MUST be enabled for this!
+        EnableNvDriver,
         NumConfigKeys
     };
 

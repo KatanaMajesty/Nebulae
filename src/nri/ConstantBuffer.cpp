@@ -49,7 +49,7 @@ namespace Neb::nri
                 .BufferLocation = bufferBaseGpuAddress + (desc.NumBytesPerBuffer * i),
                 .SizeInBytes = static_cast<UINT>(desc.NumBytesPerBuffer)
             };
-            device.GetDevice()->CreateConstantBufferView(&cbvDesc, m_descriptorAllocation.CpuAt(i));
+            device.GetD3D12Device()->CreateConstantBufferView(&cbvDesc, m_descriptorAllocation.CpuAt(i));
         }
 
         return TRUE;

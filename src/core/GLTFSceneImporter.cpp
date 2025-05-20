@@ -11,7 +11,7 @@ namespace Neb
     GLTFSceneImporter::GLTFSceneImporter()
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
-        nri::ThrowIfFailed(device.GetDevice()->CreateFence(
+        nri::ThrowIfFailed(device.GetD3D12Device()->CreateFence(
             m_copyFenceValue,
             D3D12_FENCE_FLAG_NONE,
             IID_PPV_ARGS(m_copyFence.GetAddressOf())));
@@ -38,8 +38,8 @@ namespace Neb
 
         for (tinygltf::Scene& src : m_GLTFModel.scenes)
         {
-            std::unique_ptr<Scene> scene = std::make_unique<Scene>();
-            if (ImportScene(scene.get(), src))
+            Scoped<Scene> scene = MakeScoped<Scene>();
+            if (ImportScene(scene, src))
             {
                 // If successfully imported - move the scene to the list of imported ones,
                 // otherwise just discard
@@ -94,7 +94,7 @@ namespace Neb
         // Check if staging command list is created. If not - lazy initialize it
         if (!m_stagingCommandList)
         {
-            nri::ThrowIfFailed(device.GetDevice()->CreateCommandList1(0,
+            nri::ThrowIfFailed(device.GetD3D12Device()->CreateCommandList1(0,
                 D3D12_COMMAND_LIST_TYPE_COPY,
                 D3D12_COMMAND_LIST_FLAG_NONE,
                 IID_PPV_ARGS(m_stagingCommandList.GetAddressOf())));
@@ -159,7 +159,7 @@ namespace Neb
                 );
 
                 UINT numSubresources = resourceDesc.MipLevels * resourceDesc.DepthOrArraySize;
-                device.GetDevice()->GetCopyableFootprints(
+                device.GetD3D12Device()->GetCopyableFootprints(
                     &resourceDesc,
                     0, numSubresources,
                     0,
@@ -430,12 +430,17 @@ namespace Neb
 
         if (node.mesh != -1)
         {
+            nri::StaticMesh& staticMesh = scene->StaticMeshes.emplace_back();
+
             tinygltf::Mesh& mesh = m_GLTFModel.meshes[node.mesh];
-            if (!ImportStaticMesh(scene->StaticMeshes.emplace_back(), mesh))
+            if (!ImportStaticMesh(staticMesh, mesh))
             {
                 NEB_LOG_ERROR("GLTFSceneImporter::ImportScene -> Failed to import static mesh \"{}\"... Returning!", mesh.name);
                 return false;
             }
+
+            // finally, get transformation of the mesh
+            staticMesh.InstanceToWorld = GetTransformationMatrix(node);
         }
         else
         {
@@ -507,7 +512,7 @@ namespace Neb
                     bufferView.byteLength - accessor.byteOffset);
 
                 // Store stride of an attribute as well (in bytes)
-                const UINT stride = UINT(accessor.ByteStride(bufferView)); // may become uint_max
+                const UINT stride = UINT(accessor.ByteStride(bufferView));         // may become uint_max
                 NEB_ASSERT(stride != UINT(-1), "Invalid stride from buffer view"); // fail if invalid
                 submesh.AttributeStrides[type] = stride;
                 submesh.AttributeOffsets[type] = bufferView.byteOffset + accessor.byteOffset;
@@ -714,6 +719,33 @@ namespace Neb
         return true;
     }
 
+    Mat4 GLTFSceneImporter::GetTransformationMatrix(tinygltf::Node& node)
+    {
+        const bool hasTransformationMatrix = !node.matrix.empty();
+
+        if (hasTransformationMatrix)
+        {
+            NEB_ASSERT(node.matrix.size() == 16, "Should be exactly 16 for correct convertion");
+            Mat4 transform = Mat4();
+
+            for (uint32_t row = 0; row < 4; ++row)
+            {
+                for (uint32_t col = 0; col < 4; ++col)
+                {
+                    // DirectXMath uses row-major matrices, glTF uses column-major, so do reverse assignment
+                    transform(col, row) = node.matrix.at(row * 4 + col);
+                }
+            }
+            return transform;
+        }
+
+        // else if no ready transformation to use - construct own
+        Mat4 t = Mat4::CreateTranslation(node.translation.empty() ? Vec3() : Vec3(node.translation[0], node.translation[1], node.translation[2]));
+        Mat4 r = Mat4::CreateFromQuaternion(node.rotation.empty() ? Quaternion() : Quaternion(node.rotation[0], node.rotation[1], node.rotation[2], node.rotation[3]));
+        Mat4 s = Mat4::CreateScale(node.scale.empty() ? Vec3(1.0f) : Vec3(node.scale[0], node.scale[1], node.scale[2]));
+        return s * r * t;
+    }
+
     nri::D3D12Rc<ID3D12Resource> GLTFSceneImporter::GetTextureFromGLTFScene(int32_t index)
     {
         // check if has texture?
@@ -740,7 +772,7 @@ namespace Neb
         // https://microsoft.github.io/DirectX-Specs/d3d/ResourceBinding.html#null-descriptors
         // passing NULL for the resource pointer in the descriptor definition achieves the effect of an “unbound” resource.
         nri::NRIDevice& device = nri::NRIDevice::Get();
-        device.GetDevice()->CreateShaderResourceView(resource, (resource) ? nullptr : &NullDescriptorSrvDesc, handle);
+        device.GetD3D12Device()->CreateShaderResourceView(resource, (resource) ? nullptr : &NullDescriptorSrvDesc, handle);
     }
 
 } // Neb namespace

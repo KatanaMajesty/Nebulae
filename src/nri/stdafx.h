@@ -15,6 +15,8 @@
 
 #define NEB_SET_HANDLE_NAME(t, str, ...) t->SetName(std::format(L##str, __VA_ARGS__).c_str())
 
+#define CONSTANT_BUFFER_STRUCT struct alignas(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT)
+
 namespace Neb::nri
 {
 

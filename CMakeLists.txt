@@ -24,23 +24,39 @@ target_sources(DXRNebulae PRIVATE
     "src/common/Log.cpp"
     "src/common/Log.h"
     "src/common/TimeWatch.h"
+
     "src/core/GLTFSceneImporter.cpp"
     "src/core/GLTFSceneImporter.h"
     "src/core/InspectCamera.h"
     "src/core/Math.h"
     "src/core/Scene.cpp"
     "src/core/Scene.h"
+
     "src/input/InputCallback.h"
     "src/input/InputManager.h"
     "src/input/Keyboard.cpp"
     "src/input/Keyboard.h"
     "src/input/Mouse.cpp"
     "src/input/Mouse.h"
+
     "src/nri/imgui/UiContext.cpp"
     "src/nri/imgui/UiContext.h"
+
     "src/nri/nvidia/NsightAftermathCrashTracker.cpp"
     "src/nri/nvidia/NsightAftermathCrashTracker.h"
     "src/nri/nvidia/NsightAftermathHelpers.h"
+    "src/nri/nvidia/NvApi.cpp"
+    "src/nri/nvidia/NvApi.h"
+
+    "src/nri/raytracing/RTAccelerationStructureBuilder.cpp"
+    "src/nri/raytracing/RTAccelerationStructureBuilder.h"
+    "src/nri/raytracing/RTCommon.h"
+    "src/nri/raytracing/RTDescriptorArray.h"
+    #"src/nri/raytracing/RTPipeline.cpp"
+    #"src/nri/raytracing/RTPipeline.h"
+    "src/nri/raytracing/RTScene.cpp"
+    "src/nri/raytracing/RTScene.h"
+
     "src/nri/CommandAllocatorPool.cpp"
     "src/nri/CommandAllocatorPool.h"
     "src/nri/ConstantBuffer.cpp"
@@ -63,7 +79,11 @@ target_sources(DXRNebulae PRIVATE
     "src/nri/stdafx.h"
     "src/nri/Swapchain.cpp"
     "src/nri/Swapchain.h"
+
+    "src/util/Memory.h"
     "src/util/ScopedPointer.h"
+    "src/util/Types.h"
+
     "src/ArgumentParser.h"
     "src/Nebulae.cpp"
     "src/Nebulae.h"
@@ -113,6 +133,8 @@ target_sources(DXRNebulae PRIVATE
     "${NV_DXRHELPER_DIR}/nv_helpers_dx12/TopLevelASGenerator.h"
 )
 
+set(NV_API_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/NVIDIA/NvApi")
+
 # ImGui sources
 set(IMGUI_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui")
 add_library(    imgui)
@@ -151,6 +173,7 @@ target_link_libraries(DXRNebulae
     "dxcompiler.lib"
     "GFSDK_Aftermath_Lib.x64.lib"
     "imgui"
+    "${NV_API_DIR}/nvapi64.lib"
 )
 
 # Copy DLLs to the out path
