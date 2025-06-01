@@ -15,9 +15,22 @@ namespace Neb
 
     CONSTANT_BUFFER_STRUCT CbInstanceInfo
     {
-        Neb::Mat4 InstanceToWorld;
-        Neb::Mat4 ViewProj;
+        Mat4 InstanceToWorld;
+        Mat4 ViewProj;
         uint32_t MaterialFlags;
+    };
+
+    CONSTANT_BUFFER_STRUCT CbViewData
+    {
+        Mat4 viewInv;
+        Mat4 projInv;
+    };
+
+    CONSTANT_BUFFER_STRUCT CbLightEnvironment
+    {
+        float intensity;
+        Vec3 direction;
+        Vec3 radiance;
     };
 
     class DeferredRenderer
@@ -30,7 +43,7 @@ namespace Neb
             nri::Swapchain* swapchain = nullptr;
         };
         
-        bool Init(UINT width, UINT height);
+        bool Init(UINT width, UINT height, nri::Swapchain* swapchain);
         void Resize(UINT width, UINT height);
 
         ID3D12Resource* GetGbufferAlbedo() const { return m_gbufferAlbedo->GetResource(); }
@@ -40,6 +53,9 @@ namespace Neb
         nri::DepthStencilBuffer& GetDepthStencilBuffer() { return m_depthStencilBuffer; }
         const nri::DepthStencilBuffer& GetDepthStencilBuffer() const { return m_depthStencilBuffer; }
         
+        ID3D12Resource* GetHDROutputResource() const { return m_hdrResult->GetResource(); }
+
+        // Performs deferred rendering into a swapchain provided in InitDesc
         struct RenderInfo
         {
             Scene* scene;
@@ -47,21 +63,36 @@ namespace Neb
             UINT frameIndex;
             float timestep;
         };
+        void SubmitCommandsGbuffer(const RenderInfo& info);
+        void SubmitCommandsPBRLighting(const RenderInfo& info);
+        void SubmitCommandsHDRTonemapping(ID3D12GraphicsCommandList4* commandList);
 
-        // Performs deferred rendering into a swapchain provided in InitDesc
-        void SubmitCommands(const RenderInfo& info);
+        void TransitionGbuffers(ID3D12GraphicsCommandList4* commandList,
+            D3D12_RESOURCE_STATES prev,
+            D3D12_RESOURCE_STATES next,
+            D3D12_RESOURCE_STATES depthPrev,
+            D3D12_RESOURCE_STATES depthNext);
+        void SetupDescriptorHeaps(ID3D12GraphicsCommandList4* commandList);
+        void SetupGbufferRtvs(ID3D12GraphicsCommandList4* commandList);
+        void SetupViewports(ID3D12GraphicsCommandList4* commandList);
 
     private:
         bool m_isInitialized = false;
         UINT m_width = 0;
         UINT m_height = 0;
+        nri::Swapchain* m_swapchain = nullptr;
 
         void InitGbuffers();
+        void InitGbufferHeaps();
+        void InitGbufferDepthStencilBuffer();
+        void InitGbufferDepthSrv();
+        void InitGbufferShadersAndRootSignatures();
+        void InitGbufferPipelineState();
+        void InitGbufferInstanceCb();
+        
         nri::Rc<D3D12MA::Allocation> m_gbufferAlbedo;
         nri::Rc<D3D12MA::Allocation> m_gbufferNormal;
         nri::Rc<D3D12MA::Allocation> m_gbufferRoughnessMetalness;
-
-        void InitGbufferHeaps();
         enum EGbufferSlot
         {
             GBUFFER_SLOT_ALBEDO = 0,
@@ -71,11 +102,8 @@ namespace Neb
         };
         nri::DescriptorHeapAllocation m_gbufferSrvHeap;
         nri::DescriptorHeapAllocation m_gbufferRtvHeap;
-
-        void InitDepthStencilBuffer();
         nri::DepthStencilBuffer m_depthStencilBuffer;
-
-        void InitShadersAndRootSignatures();
+        nri::DescriptorHeapAllocation m_depthSrv;
         enum EDeferredRendererRoots
         {
             DEFERRED_RENDERER_ROOTS_INSTANCE_INFO = 0,
@@ -85,12 +113,45 @@ namespace Neb
         nri::RootSignature m_gbufferRS;
         nri::Shader m_vsGbuffer;
         nri::Shader m_psGbuffer;
-
-        void InitPipelineState();
         nri::Rc<ID3D12PipelineState> m_pipelineState;
-
-        void InitInstanceCb();
         nri::ConstantBuffer m_cbInstance;
+
+        void InitPBRResources();
+        void InitPBRDescriptorHeaps();
+        void InitPBRShadersAndRootSignature();
+        void InitPBRConstantBuffers();
+        void InitPBRPipeline();
+
+        nri::Rc<D3D12MA::Allocation> m_hdrResult;
+        nri::DescriptorHeapAllocation m_pbrSrvHeap;
+        nri::DescriptorHeapAllocation m_pbrRtvHeap;
+        enum EPbrRoots
+        {
+            PBR_ROOT_CB_VIEW_DATA = 0,
+            PBR_ROOT_CB_LIGHT_ENV,
+            PBR_ROOT_GBUFFERS,
+            PBR_ROOT_SCENE_DEPTH,
+            PBR_ROOT_NUM_ROOTS,
+        };
+        nri::RootSignature m_pbrRS;
+        nri::Shader m_vsPBR;
+        nri::Shader m_psPBR;
+        nri::ConstantBuffer m_cbViewData;
+        nri::ConstantBuffer m_cbLightEnv;
+        nri::Rc<ID3D12PipelineState> m_pbrPipeline;
+
+        void InitHDRTonemapShadersAndRootSignature();
+        void InitHDRTonemapPipeline(DXGI_FORMAT outputFormat);
+
+        enum ETonemapRoots
+        {
+            TONEMAP_ROOT_HDR_INPUT = 0,
+            TONEMAP_ROOT_NUM_ROOTS,
+        };
+        nri::RootSignature m_tonemapRS;
+        nri::Shader m_vsTonemap; // TODO: This should effectively be cached by nri::ShaderCompiler as it is the same as m_vsPBR (fs triangle)
+        nri::Shader m_psTonemap;
+        nri::Rc<ID3D12PipelineState> m_tonemapPipeline;
     };
 
 } // Neb namespace

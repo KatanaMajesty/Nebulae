@@ -31,6 +31,10 @@ namespace Neb
         BOOL Init(HWND hwnd);
         BOOL InitSceneContext(Scene* scene);
 
+        // TODO: WIP here
+        void RenderSceneDeferred(float timestep);
+        void RenderUI(UINT frameIndex);
+
         void RenderScene(float timestep);
         void RenderSceneRaytraced(float timestep);
         void Resize(UINT width, UINT height);
@@ -41,6 +45,20 @@ namespace Neb
     private:
         void PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene);
         void SubmitCommandList(nri::ECommandContextType contextType, ID3D12CommandList* commandList, ID3D12Fence* fence, UINT fenceValue);
+
+        void BeginCommandList(nri::ECommandContextType contextType);
+        void EndCommandList(nri::ECommandContextType contextType, UINT frameIndex); // also updates fence value
+
+        // Helper command that accepts a functor to be invoked as a part of command list scope
+        template<typename Func, typename... Args>
+        void ExecuteCommandList(nri::ECommandContextType contextType, UINT frameIndex, Func f, Args&&... args)
+        {
+            BeginCommandList(contextType);
+            {
+                std::invoke(f, std::forward<Args>(args)...);
+            }
+            EndCommandList(contextType, frameIndex);
+        }
 
         // Synchronizes with in-flight, waits if needed
         // returns  frame index of the next frame (as a swapchain's backbuffer index)
@@ -60,6 +78,7 @@ namespace Neb
 
         void InitCommandList();
         nri::D3D12Rc<ID3D12GraphicsCommandList4> m_commandList;
+        nri::D3D12Rc<ID3D12CommandAllocator> m_currentCmdAllocator;
 
         enum ERendererRoots
         {

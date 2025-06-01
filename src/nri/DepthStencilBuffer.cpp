@@ -5,13 +5,12 @@
 namespace Neb::nri
 {
 
-    BOOL DepthStencilBuffer::Init(UINT width, UINT height)
+    BOOL DepthStencilBuffer::Init(UINT width, UINT height, D3D12_RESOURCE_FLAGS flags)
     {
         NRIDevice& device = NRIDevice::Get();
 
         m_desc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R24G8_TYPELESS, width, height, 1, 1);
-        m_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-        m_desc.Flags |= D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+        m_desc.Flags |= flags;
         m_depthStencilView = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_DSV).AllocateDescriptors(1);
         AllocateAll();
         return TRUE;

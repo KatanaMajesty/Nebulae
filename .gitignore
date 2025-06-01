@@ -364,3 +364,5 @@ FodyWeavers.xsd
 
 !vendor/NVIDIA/NSight_Aftermath/lib/*
 /vendor/DXRHelper/DXRHelper.h
+!vendor/NVIDIA/RTXGI/Nrc/*
+

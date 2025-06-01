@@ -32,9 +32,9 @@ namespace Neb
 
         m_sceneImporter = MakeScoped<GLTFSceneImporter>();
         //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "cornell_box" / "cornell_box.gltf"));
-        //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "sponza-gltf-pbr" / "Sponza.glb", EGLTFType::Binary));
+        nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "sponza-gltf-pbr" / "Sponza.glb", EGLTFType::Binary));
         //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "sponza" / "Sponza.gltf"));
-        nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "DamagedHelmet" / "DamagedHelmet.gltf"));
+        //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "DamagedHelmet" / "DamagedHelmet.gltf"));
 
         // TODO: This is currently hardcoded as we know that very first scene will be used for rendering, thus we register its callbacks
         Neb::Scene* scene = m_sceneImporter->ImportedScenes.front();
@@ -87,7 +87,11 @@ namespace Neb
 
         secondsSinceLastFps += timestep;
 
+        #if 1
+        (m_isRaytracer ? m_renderer->RenderSceneRaytraced(timestep) : m_renderer->RenderSceneDeferred(timestep));
+        #else
         (m_isRaytracer ? m_renderer->RenderSceneRaytraced(timestep) : m_renderer->RenderScene(timestep));
+        #endif
     }
 
     void Nebulae::Resize(UINT width, UINT height)

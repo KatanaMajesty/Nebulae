@@ -54,7 +54,7 @@ namespace Neb
         InitPipelineState();
         InitInstanceCb();
 
-        m_deferredRenderer.Init(m_swapchain.GetWidth(), m_swapchain.GetHeight());
+        m_deferredRenderer.Init(m_swapchain.GetWidth(), m_swapchain.GetHeight(), &m_swapchain);
 
         nri::UiContext::Get()->Init(nri::UiSpecification{
             .handle = hwnd,
@@ -97,6 +97,61 @@ namespace Neb
         return true;
     }
 
+    void Renderer::RenderSceneDeferred(float timestep)
+    {
+        NEB_ASSERT(m_scene);
+
+        UINT frameIndex = NextFrame();
+
+        // Begin frame (including UI frame)
+        nri::UiContext::Get()->BeginFrame();
+        {
+            DeferredRenderer::RenderInfo renderInfo = {
+                .scene = m_scene,
+                .commandList = m_commandList.Get(),
+                .frameIndex = frameIndex,
+                .timestep = timestep
+            };
+
+            this->ExecuteCommandList(nri::eCommandContextType_Graphics, frameIndex,
+                [this, &renderInfo]
+                {
+                    m_deferredRenderer.SubmitCommandsGbuffer(renderInfo);
+                });
+
+            this->ExecuteCommandList(nri::eCommandContextType_Graphics, frameIndex,
+                [this, &renderInfo]
+                {
+                    m_deferredRenderer.SubmitCommandsPBRLighting(renderInfo);
+                });
+
+            this->ExecuteCommandList(nri::eCommandContextType_Graphics, frameIndex,
+                [this, &renderInfo]
+                {
+                    m_deferredRenderer.SubmitCommandsHDRTonemapping(m_commandList.Get());
+                });
+        }
+        nri::UiContext::Get()->EndFrame();
+        this->RenderUI(frameIndex); // Call explicitly after ending a frame
+
+        m_swapchain.Present(FALSE);
+    }
+
+    void Renderer::RenderUI(UINT frameIndex)
+    {
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
+        nri::Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
+
+        nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
+        nri::UiContext::Get()->SubmitCommands(frameIndex, m_commandList.Get(), &m_swapchain);
+        nri::ThrowIfFailed(m_commandList->Close());
+
+        SubmitCommandList(nri::eCommandContextType_Graphics, m_commandList.Get(), m_fence.Get(), m_fenceValues[frameIndex]);
+        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[frameIndex]);
+        ++m_fenceValues[frameIndex]; // Increment fence value before proceding to PBR lighting pass
+    }
+
     void Renderer::RenderScene(float timestep)
     {
         if (!m_scene)
@@ -116,7 +171,7 @@ namespace Neb
         nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
         {
             nri::UiContext::Get()->BeginFrame();
-            m_deferredRenderer.SubmitCommands(DeferredRenderer::RenderInfo{
+            m_deferredRenderer.SubmitCommandsGbuffer(DeferredRenderer::RenderInfo{
                 .scene = m_scene,
                 .commandList = m_commandList.Get(),
                 .frameIndex = frameIndex,
@@ -277,6 +332,25 @@ namespace Neb
         queue->Signal(fence, fenceValue);
 
         NEB_ASSERT(*std::ranges::max_element(m_fenceValues) == fenceValue, "Fence value we are waiting for needs to be max");
+    }
+
+    void Renderer::BeginCommandList(nri::ECommandContextType contextType)
+    {
+        nri::CommandAllocatorPool& commandAllocatorPool = nri::NRIDevice::Get().GetCommandAllocatorPool(contextType);
+        m_currentCmdAllocator = commandAllocatorPool.QueryAllocator();
+        nri::ThrowIfFailed(m_commandList->Reset(m_currentCmdAllocator.Get(), nullptr));
+    }
+
+    void Renderer::EndCommandList(nri::ECommandContextType contextType, UINT frameIndex)
+    {
+        NEB_ASSERT(m_currentCmdAllocator != nullptr, "Current command allocator should be valid!");
+        nri::ThrowIfFailed(m_commandList->Close());
+        {
+            SubmitCommandList(contextType, m_commandList.Get(), m_fence.Get(), m_fenceValues[frameIndex]);
+        }
+        nri::NRIDevice::Get().GetCommandAllocatorPool(contextType).DiscardAllocator(m_currentCmdAllocator.Get(), m_fence.Get(), m_fenceValues[frameIndex]);
+        ++m_fenceValues[frameIndex]; // Increment fence value before proceding to the next command list submition
+        m_currentCmdAllocator = nullptr; // reset command allocator
     }
 
     UINT Renderer::NextFrame()

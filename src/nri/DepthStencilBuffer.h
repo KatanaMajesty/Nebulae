@@ -10,7 +10,8 @@ namespace Neb::nri
     class DepthStencilBuffer
     {
     public:
-        BOOL Init(UINT width, UINT height);
+        BOOL Init(UINT width, UINT height,
+            D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
 
         BOOL Resize(UINT width, UINT height);
         DXGI_FORMAT GetFormat() const { return m_desc.Format; }
@@ -27,6 +28,7 @@ namespace Neb::nri
         D3D12Rc<D3D12MA::Allocation> m_bufferAllocation;
 
         DescriptorHeapAllocation m_depthStencilView;
+        DescriptorHeapAllocation m_depthSrv;
     };
 
 }
