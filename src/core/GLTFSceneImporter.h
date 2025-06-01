@@ -18,12 +18,18 @@ namespace Neb
     // Quickstart with glTF https://www.khronos.org/files/gltf20-reference-guide.pdf
     // Afterwards we chill here - https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html
 
+    enum class EGLTFType
+    {
+        AsciiFile,
+        Binary
+    };
+
     class GLTFSceneImporter
     {
     public:
         GLTFSceneImporter();
 
-        bool ImportScenesFromFile(const std::filesystem::path& filepath);
+        bool ImportScenesFromFile(const std::filesystem::path& filepath, EGLTFType type = EGLTFType::AsciiFile);
         void Clear();
 
         // Maybe make them private? Dont really care now

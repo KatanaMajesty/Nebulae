@@ -25,7 +25,7 @@ namespace Neb
         {
             other.ptr = nullptr;
         }
-        Scoped& operator=(Scoped&& other)
+        Scoped& operator=(Scoped&& other) noexcept
         {
             if (this->ptr != &other)
             {
@@ -37,27 +37,27 @@ namespace Neb
 
         ~Scoped() { this->Release(); }
 
-        bool IsValid() const { return this->ptr != nullptr; }
+        inline constexpr bool IsValid() const noexcept { return this->ptr != nullptr; }
 
-        T* operator->()
+        inline constexpr T* operator->() noexcept
         {
             NEB_ASSERT(this->IsValid(), "Underlying pointer should be initialized");
             return ptr;
         }
-        const T* operator->() const
+        inline constexpr const T* operator->() const noexcept
         {
             NEB_ASSERT(this->IsValid(), "Underlying pointer should be initialized");
             return ptr;
         }
 
-        T* operator&() { return this->ptr; }
-        const T* operator&() const { return this->ptr; }
+        inline constexpr T* operator&() noexcept { return this->ptr; }
+        inline constexpr const T* operator&() const noexcept { return this->ptr; }
 
-        operator T*() { return this->ptr; }
-        operator const T*() const { return this->ptr; }
+        inline constexpr operator T*() noexcept { return this->ptr; }
+        inline constexpr operator const T*() const noexcept { return this->ptr; }
 
         // Frees the memory of underlying pointer
-        void Release()
+        inline constexpr void Release()
         {
             if (this->IsValid())
             {
@@ -70,7 +70,7 @@ namespace Neb
     };
 
     template<typename T, typename... Args>
-    Scoped<T> MakeScoped(Args&&... args)
+    inline constexpr Scoped<T> MakeScoped(Args&&... args)
     {
         return Scoped(new T(std::forward<Args>(args)...));
     }

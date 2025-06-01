@@ -85,6 +85,8 @@ target_sources(DXRNebulae PRIVATE
     "src/util/Types.h"
 
     "src/ArgumentParser.h"
+    "src/DeferredRenderer.cpp"
+    "src/DeferredRenderer.h"
     "src/Nebulae.cpp"
     "src/Nebulae.h"
     "src/Raytracer.cpp"

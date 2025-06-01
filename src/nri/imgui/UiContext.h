@@ -50,6 +50,10 @@ namespace Neb::nri
         //          false otherwise
         bool IsMouseBusy();
 
+        // returns  true - if keyboard buttons are currently being used by ImGui UI (for example, when typing in text)
+        //          false otherwise
+        bool IsKeyboardBusy();
+
     private:
         void InitWin32Hwnd();
         void InitDx12();

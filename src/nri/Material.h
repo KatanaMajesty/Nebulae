@@ -15,6 +15,15 @@ namespace Neb::nri
         eMaterialTextureType_NumTypes,
     };
 
+    using EMaterialFlags = uint32_t;
+    enum EMaterialFlag
+    {
+        eMaterialFlag_None = 0,
+        eMaterialFlag_HasAlbedoMap = 1,
+        eMaterialFlag_HasNormalMap = 2,
+        eMaterialFlag_HasRoughnessMetalnessMap = 4,
+    };
+
     // Defines the entire material itself. Material definition based upon glTF 2.0 spec
     // For more info: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#reference-material-pbrmetallicroughness
     //
@@ -35,6 +44,8 @@ namespace Neb::nri
         // The idea is to store descriptors for each material texture in one descriptor range
         // If material dont have a specific texture then null descriptor will be in place, thats it
         DescriptorHeapAllocation SrvRange; // Albedo, Normal, RoughnessMetalness
+
+        EMaterialFlags Flags = eMaterialFlag_None;
     };
 
 }

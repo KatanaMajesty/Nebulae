@@ -17,14 +17,23 @@ namespace Neb
             IID_PPV_ARGS(m_copyFence.GetAddressOf())));
     }
 
-    bool GLTFSceneImporter::ImportScenesFromFile(const std::filesystem::path& filepath)
+    bool GLTFSceneImporter::ImportScenesFromFile(const std::filesystem::path& filepath, EGLTFType type)
     {
         Clear(); // cleanup before work
         std::string err, warn;
 
-        if (!m_GLTFLoader.LoadASCIIFromFile(&m_GLTFModel, &err, &warn, filepath.string()))
+        bool result = false;
+        switch (type)
         {
-            NEB_ASSERT(!err.empty(), "Failed to load ASCII from glTF file ({})", err);
+        case EGLTFType::AsciiFile: result = m_GLTFLoader.LoadASCIIFromFile(&m_GLTFModel, &err, &warn, filepath.string()); break;
+        case EGLTFType::Binary: result = m_GLTFLoader.LoadBinaryFromFile(&m_GLTFModel, &err, &warn, filepath.string()); break;
+        default:
+            NEB_LOG_ERROR("Unknown GLTF file type");
+        }
+
+        if (!result)
+        {
+            NEB_ASSERT(!err.empty(), "Failed to load glTF file ({})", err);
             NEB_LOG_ERROR("{}", err);
             return false;
         }
@@ -268,6 +277,7 @@ namespace Neb
                 void* data;
                 nri::ThrowIfFailed(uploadBuffer->Map(0, nullptr, &data));
                 std::memcpy(data, src.data.data(), numBytes);
+                uploadBuffer->Unmap(0, nullptr);
             }
 
             m_stagingCommandList->CopyBufferRegion(m_GLTFBuffers[i].Get(), 0, uploadBuffer.Get(), 0, numBytes);
@@ -683,7 +693,7 @@ namespace Neb
             {
                 tinygltf::Material& srcMaterial = m_GLTFModel.materials[primitive.material];
                 tinygltf::PbrMetallicRoughness& pbrMaterial = srcMaterial.pbrMetallicRoughness;
-
+                
                 // check if has albedo map
                 material.Textures[nri::eMaterialTextureType_Albedo] = GetTextureFromGLTFScene(pbrMaterial.baseColorTexture.index);
                 if (!material.Textures[nri::eMaterialTextureType_Albedo])
@@ -703,6 +713,11 @@ namespace Neb
                 material.Textures[nri::eMaterialTextureType_RoughnessMetalness] = GetTextureFromGLTFScene(pbrMaterial.metallicRoughnessTexture.index);
                 if (!material.Textures[nri::eMaterialTextureType_RoughnessMetalness])
                     material.RoughnessMetalnessFactor = Neb::Vec2(pbrMaterial.roughnessFactor, pbrMaterial.metallicFactor);
+
+                // Specify material flags for rendering
+                material.Flags |= (material.Textures[nri::eMaterialTextureType_Albedo]) ? nri::eMaterialFlag_HasAlbedoMap : 0;
+                material.Flags |= (material.Textures[nri::eMaterialTextureType_Normal]) ? nri::eMaterialFlag_HasNormalMap : 0;
+                material.Flags |= (material.Textures[nri::eMaterialTextureType_RoughnessMetalness]) ? nri::eMaterialFlag_HasRoughnessMetalnessMap : 0;
 
                 nri::NRIDevice& device = nri::NRIDevice::Get();
                 nri::DescriptorHeap& descriptorHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);

@@ -24,6 +24,7 @@ namespace Neb
         eKeycode_Q, eKeycode_R, eKeycode_S, eKeycode_T, eKeycode_U, eKeycode_V, eKeycode_W, eKeycode_X,
         eKeycode_Y, eKeycode_Z,
         eKeycode_Esc,
+        eKeycode_Shift, eKeycode_Ctrl,
         // Reserved to always be last
         eKeycode_NumKeycodes,
     };

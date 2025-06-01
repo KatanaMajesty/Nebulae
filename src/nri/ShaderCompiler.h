@@ -74,13 +74,20 @@ namespace Neb::nri
 
     class ShaderCompiler
     {
-    public:
+    private:
         ShaderCompiler();
 
+    public:
         ShaderCompiler(const ShaderCompiler&) = delete;
         ShaderCompiler& operator=(const ShaderCompiler&) = delete;
 
         ~ShaderCompiler() = default;
+
+        static ShaderCompiler* Get()
+        {
+            static ShaderCompiler compiler;
+            return &compiler;
+        }
 
         Shader CompileShader(std::string_view filepath,
             const ShaderCompilationDesc& desc,

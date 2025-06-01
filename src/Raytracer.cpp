@@ -395,7 +395,7 @@ namespace Neb
         const std::filesystem::path shaderDirectory = Nebulae::Get().GetSpecification().AssetsDirectory / "shaders";
         const std::filesystem::path shaderFilepath = shaderDirectory / "BasicRt.hlsl";
 
-        m_shaderBasic = nri::ShaderCompiler().CompileLibrary(shaderFilepath.string());
+        m_shaderBasic = nri::ShaderCompiler::Get()->CompileLibrary(shaderFilepath.string());
 
         if (!m_shaderBasic.HasBinary())
         {

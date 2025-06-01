@@ -125,6 +125,8 @@ void InitInputMappings()
     keyMapping['Z'] = eKeycode_Z;
 
     keyMapping[VK_ESCAPE] = eKeycode_Esc;
+    keyMapping[VK_SHIFT] = eKeycode_Shift;
+    keyMapping[VK_CONTROL] = eKeycode_Ctrl;
 }
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);

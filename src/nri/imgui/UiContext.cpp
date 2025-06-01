@@ -94,6 +94,11 @@ namespace Neb::nri
         return ImGui::GetIO().WantCaptureMouse;
     }
 
+    bool UiContext::IsKeyboardBusy()
+    {
+        return ImGui::GetIO().WantCaptureKeyboard;
+    }
+
     void UiContext::InitWin32Hwnd()
     {
         // Setup Platform backend

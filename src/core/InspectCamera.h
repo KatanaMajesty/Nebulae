@@ -16,6 +16,7 @@ namespace Neb
         InspectCamera() = default;
 
         inline void SetOrigin(const Vec3& origin) noexcept { m_origin = origin; }
+        inline void AddOrigin(const Vec3& origin) noexcept { m_origin = origin; }
         inline const Vec3& GetOrigin() const noexcept { return m_origin; }
 
         inline void SetRotationXy(const Vec2& rotationXy) noexcept { m_rotationXy = rotationXy; }

@@ -6,21 +6,15 @@
 #include "nri/DepthStencilBuffer.h"
 #include "nri/RootSignature.h"
 #include "nri/Shader.h"
-#include "nri/ShaderCompiler.h"
 #include "nri/Swapchain.h"
 
+#include "DeferredRenderer.h"
 #include "Raytracer.h"
 
 #include <array>
 
 namespace Neb
 {
-
-    CONSTANT_BUFFER_STRUCT CbInstanceInfo
-    {
-        Neb::Mat4 InstanceToWorld;
-        Neb::Mat4 ViewProj;
-    };
 
     class Renderer
     {
@@ -58,7 +52,6 @@ namespace Neb
         HWND m_hwnd = nullptr;
         Scene* m_scene = nullptr;
 
-        nri::ShaderCompiler m_shaderCompiler;
         nri::Swapchain m_swapchain;
         nri::DepthStencilBuffer m_depthStencilBuffer;
         nri::D3D12Rc<ID3D12Fence> m_fence;
@@ -86,6 +79,11 @@ namespace Neb
         void InitInstanceCb();
         nri::ConstantBuffer m_cbInstance;
 
+        // Deferred renderer is scene-agnostic, should be initialized in Init()
+        DeferredRenderer m_deferredRenderer;
+
+        // Opposed to deferred renderer RtScene should be initialized in InitSceneContext(), 
+        // as it contains BLAS/TLAS that are dependant on the scene
         RtScene m_raytracer;
     };
 

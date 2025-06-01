@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include "../Win.h"
 #include "common/Assert.h"
 
@@ -19,6 +18,8 @@
 
 namespace Neb::nri
 {
+
+    static inline IID NullRIID = __uuidof(nullptr);
 
     template<typename T>
     using D3D12Rc = Microsoft::WRL::ComPtr<T>;

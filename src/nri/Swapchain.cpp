@@ -110,7 +110,13 @@ namespace Neb::nri
     {
         // We only release rt buffers, no need to release rtvs, as they do not affect resizing
         for (UINT i = 0; i < NumBackbuffers; ++i)
-            m_renderTargets[i].Reset();
+        {
+            if (m_renderTargets[i].Reset() != 0)
+            {
+                NEB_LOG_WARN("Reference count should be 0 when releasing");
+                //return FALSE;
+            }
+        }
 
         return TRUE;
     }

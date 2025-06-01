@@ -3,6 +3,7 @@
 #include "common/Assert.h"
 #include "common/Log.h"
 #include "nri/imgui/UiContext.h"
+#include "nri/ShaderCompiler.h"
 #include "nri/Device.h"
 
 // TODO: Remove this when shader library is implemented.
@@ -52,6 +53,8 @@ namespace Neb
         InitRootSignatureAndShaders();
         InitPipelineState();
         InitInstanceCb();
+
+        m_deferredRenderer.Init(m_swapchain.GetWidth(), m_swapchain.GetHeight());
 
         nri::UiContext::Get()->Init(nri::UiSpecification{
             .handle = hwnd,
@@ -113,7 +116,12 @@ namespace Neb
         nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
         {
             nri::UiContext::Get()->BeginFrame();
-            PopulateCommandLists(frameIndex, timestep, m_scene);
+            m_deferredRenderer.SubmitCommands(DeferredRenderer::RenderInfo{
+                .scene = m_scene,
+                .commandList = m_commandList.Get(),
+                .frameIndex = frameIndex,
+                .timestep = timestep });
+            this->PopulateCommandLists(frameIndex, timestep, m_scene);
             nri::UiContext::Get()->EndFrame();
             nri::UiContext::Get()->SubmitCommands(frameIndex, m_commandList.Get(), &m_swapchain);
         }
@@ -162,6 +170,7 @@ namespace Neb
         {
             // Handle the return result better
             m_swapchain.Resize(width, height);
+            m_deferredRenderer.Resize(width, height);
             m_depthStencilBuffer.Resize(width, height);
             m_raytracer.Resize(width, height); // Finally resize the ray tracing scene
         }
@@ -172,7 +181,7 @@ namespace Neb
         NEB_ASSERT(m_commandList && scene, "Invalid populate context");
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
-        ImGui::ShowDemoWindow();
+        //ImGui::ShowDemoWindow();
 
         {
             std::array shaderVisibleHeaps = {
@@ -266,12 +275,15 @@ namespace Neb
         ID3D12CommandQueue* queue = device.GetCommandQueue(contextType);
         queue->ExecuteCommandLists(1, &commandList);
         queue->Signal(fence, fenceValue);
+
+        NEB_ASSERT(*std::ranges::max_element(m_fenceValues) == fenceValue, "Fence value we are waiting for needs to be max");
     }
 
     UINT Renderer::NextFrame()
     {
         UINT64 prevFenceValue = m_fenceValues[m_frameIndex];
 
+        // only wait for a new frame's fence value
         m_frameIndex = m_swapchain.GetCurrentBackbufferIndex();
         this->WaitForFrame(m_frameIndex);
 
@@ -327,12 +339,12 @@ namespace Neb
         const std::filesystem::path shaderDir = Nebulae::Get().GetSpecification().AssetsDirectory / "shaders";
         const std::string shaderFilepath = (shaderDir / "Basic.hlsl").string();
 
-        m_vsBasic = m_shaderCompiler.CompileShader(
+        m_vsBasic = nri::ShaderCompiler::Get()->CompileShader(
             shaderFilepath,
             nri::ShaderCompilationDesc("VSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Vertex),
             nri::eShaderCompilationFlag_None);
 
-        m_psBasic = m_shaderCompiler.CompileShader(
+        m_psBasic = nri::ShaderCompiler::Get()->CompileShader(
             shaderFilepath,
             nri::ShaderCompilationDesc("PSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Pixel),
             nri::eShaderCompilationFlag_None);

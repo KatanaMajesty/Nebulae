@@ -59,7 +59,7 @@ SamplerState StaticSampler : register(s0);
 float4 PSMain(in VSOutput input) : SV_Target0
 {
     static const float3 L = normalize(float3(-0.5, -1.0, -1.0));
-    static const float3 Ambient = float3(0.04, 0.01, 0.02);
+    static const float3 Ambient = float3(0.24, 0.01, 0.02);
         
     float3 N = normalize(input.WorldNormal);
     float3x3 TBN = float3x3(normalize(input.Tangent), normalize(input.Bitangent), N);

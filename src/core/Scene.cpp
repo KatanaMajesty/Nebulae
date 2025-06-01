@@ -13,11 +13,7 @@ namespace Neb
 
     void Scene::OnMouseScroll(const MouseEvent_Scrolled& event)
     {
-        InputManager& inputManager = InputManager::Get();
-
-        EMouseButtonStates rmbStates = inputManager.GetMouse().GetMouseButtonStates(eMouseButton_Right);
-        float scrollFactor = (rmbStates & eMouseButtonState_Clicked) ? 0.3f : 0.1f;
-        Camera.AddDistance(-event.Value * scrollFactor);
+        Camera.AddDistance(-event.Value * this->ScrollSpeedFactor);
     }
 
     void Scene::OnMouseCursorMoved(const MouseEvent_CursorHotspotChanged& event)
@@ -63,6 +59,25 @@ namespace Neb
         {
             // ternary operator incident (fetish)
             AbleToInspect = (event.NextStates & eMouseButtonState_Released) ? false : ((event.NextStates & eMouseButtonState_Clicked) ? true : false);
+        }
+    }
+
+    void Scene::OnKeyboardInteract(const KeyboardEvent_KeyInteraction& event)
+    {
+        if (nri::UiContext::Get()->IsKeyboardBusy())
+            return;
+
+        switch (event.Keycode)
+        {
+        case eKeycode_Shift:
+            this->ScrollSpeedFactor = (event.NextState == eKeycodeState_Released) ? 0.25f : 0.5f; // if released reset to default
+            break;
+        case eKeycode_W:
+        case eKeycode_A:
+        case eKeycode_S:
+        case eKeycode_D:
+        default:
+            return; // do nothing
         }
     }
 
