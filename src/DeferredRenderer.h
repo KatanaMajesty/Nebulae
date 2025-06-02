@@ -9,6 +9,8 @@
 #include "nri/Swapchain.h"
 #include "nri/Shader.h"
 #include "nri/RootSignature.h"
+#include "nri/raytracing/RTAccelerationStructureBuilder.h"
+#include "nri/raytracing/RTCommon.h"
 
 namespace Neb
 {
@@ -28,9 +30,10 @@ namespace Neb
 
     CONSTANT_BUFFER_STRUCT CbLightEnvironment
     {
-        float intensity;
         Vec3 direction;
-        Vec3 radiance;
+        float tanHalfAngle; // tan(0.265) = 4.63e-3
+        Vec3 radiance; // linear RGB, W * sr^-1 * m^-2
+        UINT frameIndex;
     };
 
     class DeferredRenderer
@@ -78,7 +81,6 @@ namespace Neb
         void SetupViewports(ID3D12GraphicsCommandList4* commandList);
 
     private:
-        bool m_isInitialized = false;
         UINT m_width = 0;
         UINT m_height = 0;
         nri::Swapchain* m_swapchain = nullptr;
@@ -138,15 +140,26 @@ namespace Neb
             PBR_ROOT_CB_LIGHT_ENV,
             PBR_ROOT_GBUFFERS,
             PBR_ROOT_SCENE_DEPTH,
+            PBR_ROOT_SCENE_TLAS_SRV,
             PBR_ROOT_HDR_OUTPUT_UAV,
             PBR_ROOT_NUM_ROOTS,
         };
         nri::RootSignature m_pbrRS;
-        //nri::Shader m_vsPBR;
         nri::Shader m_csPBR;
         nri::ConstantBuffer m_cbViewData;
         nri::ConstantBuffer m_cbLightEnv;
         nri::Rc<ID3D12PipelineState> m_pbrPipeline;
+
+        // These ones are a bit special as they are called inside command submition lazily
+        void InitRTAccelerationStructures(ID3D12GraphicsCommandList4* commandList, Scene* scene);
+
+        // Ray-tracing objects for inline ray queries during PBR lighting
+        //      usage may expand soon
+        Scene* m_rtScene = nullptr;
+        nri::RTAccelerationStructureBuilder m_asBuilder;
+        nri::RTBlasBuffers m_blas;
+        nri::RTTlasBuffers m_tlas;
+        nri::DescriptorHeapAllocation m_tlasSrvHeap;
 
         void InitHDRTonemapShadersAndRootSignature();
         void InitHDRTonemapPipeline(DXGI_FORMAT outputFormat);

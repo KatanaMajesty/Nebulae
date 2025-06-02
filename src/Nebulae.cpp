@@ -31,9 +31,10 @@ namespace Neb
         }
 
         m_sceneImporter = MakeScoped<GLTFSceneImporter>();
+        //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "a-beautiful-game" / "ABeautifulGame.gltf"));
         //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "cornell_box" / "cornell_box.gltf"));
-        nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "sponza-gltf-pbr" / "Sponza.glb", EGLTFType::Binary));
-        //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "sponza" / "Sponza.gltf"));
+        //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "sponza-gltf-pbr" / "Sponza.glb", EGLTFType::Binary));
+        nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "sponza" / "Sponza.gltf"));
         //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "DamagedHelmet" / "DamagedHelmet.gltf"));
 
         // TODO: This is currently hardcoded as we know that very first scene will be used for rendering, thus we register its callbacks

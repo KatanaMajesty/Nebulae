@@ -138,6 +138,9 @@ namespace Neb
 
         ID3D12GraphicsCommandList4* commandList = info.commandList;
         {
+            // First things first - update TLAS!
+            InitRTAccelerationStructures(commandList, info.scene);
+
             SetupDescriptorHeaps(commandList);
             SetupViewports(commandList);
 
@@ -158,6 +161,7 @@ namespace Neb
             commandList->SetComputeRootConstantBufferView(PBR_ROOT_CB_LIGHT_ENV, m_cbLightEnv.GetGpuVirtualAddress(info.frameIndex));
             commandList->SetComputeRootDescriptorTable(PBR_ROOT_GBUFFERS, m_gbufferSrvHeap.GpuAddress);
             commandList->SetComputeRootDescriptorTable(PBR_ROOT_SCENE_DEPTH, m_depthSrv.GpuAddress);
+            commandList->SetComputeRootDescriptorTable(PBR_ROOT_SCENE_TLAS_SRV, m_tlasSrvHeap.GpuAddress);
             commandList->SetComputeRootDescriptorTable(PBR_ROOT_HDR_OUTPUT_UAV, m_pbrSrvUavHeap.GpuAt(HDR_UAV_INDEX));
             commandList->SetPipelineState(m_pbrPipeline.Get());
 
@@ -171,16 +175,17 @@ namespace Neb
             };
             std::memcpy(m_cbViewData.GetMapping(info.frameIndex), &viewData, sizeof(CbViewData));
 
+            float diameterDeg = 0.58f;
+
+            static uint32_t fIdx = 0;
             CbLightEnvironment lightEnv = {
-                .intensity = 4.0f,
-                .direction = Vec3(0.0f, -1.0f, 0.0f),
-                .radiance = Vec3(4.0f, 2.5f, 2.7f),
+                .direction = Vec3(-0.5f, -1.0f, -0.1f),
+                .tanHalfAngle = tanf(ToRadians(diameterDeg * 0.5f)),
+                .radiance = Vec3(2.0f, 1.94f, 1.9f),
+                .frameIndex = fIdx++,
             };
             std::memcpy(m_cbLightEnv.GetMapping(info.frameIndex), &lightEnv, sizeof(CbLightEnvironment));
 
-            // Fullscreen triangle
-            //commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            //commandList->DrawInstanced(3, 1, 0, 0);
             commandList->Dispatch((width + 7) / 8, (height + 7) / 8, 1); 
             {
                 TransitionGbuffers(commandList,
@@ -504,10 +509,6 @@ namespace Neb
         D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(format, m_width, m_height, 1, 1);
         resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
-        /*Vec4 v = Vec4(0.0f);
-        D3D12_CLEAR_VALUE clearValue = { .Format = format };
-        std::memcpy(clearValue.Color, &v.x, sizeof(clearValue.Color));*/
-
         nri::ThrowIfFailed(allocator->CreateResource(
                                &allocDesc,
                                &resourceDesc,
@@ -562,27 +563,22 @@ namespace Neb
 
     void DeferredRenderer::InitPBRShadersAndRootSignature()
     {
-        nri::ShaderCompiler* compiler = nri::ShaderCompiler::Get();
-
         const std::filesystem::path shaderDir = Nebulae::Get().GetSpecification().AssetsDirectory / "shaders";
 
-        /*m_vsPBR = compiler->CompileShader(
-            (shaderDir / "fullscreen_triangle_vs.hlsl").string(),
-            nri::ShaderCompilationDesc("VSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Vertex),
-            nri::eShaderCompilationFlag_None);*/
-
-        m_csPBR = compiler->CompileShader(
+        m_csPBR = nri::ShaderCompiler::Get()->CompileShader(
             (shaderDir / "deferred_pbr.hlsl").string(),
             nri::ShaderCompilationDesc("CSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Compute));
 
         D3D12_DESCRIPTOR_RANGE1 gbufferSrvRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, GBUFFER_SLOT_NUM_SLOTS, 0, 1);
         D3D12_DESCRIPTOR_RANGE1 sceneDepthSrv = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+        D3D12_DESCRIPTOR_RANGE1 sceneTlasSrv = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0);
         D3D12_DESCRIPTOR_RANGE1 hdrOutputUav = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0);
         m_pbrRS = nri::RootSignature(PBR_ROOT_NUM_ROOTS)
                       .AddParamCbv(PBR_ROOT_CB_VIEW_DATA, 0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC)
                       .AddParamCbv(PBR_ROOT_CB_LIGHT_ENV, 1, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC)
                       .AddParamDescriptorTable(PBR_ROOT_GBUFFERS, std::array{ gbufferSrvRange })
                       .AddParamDescriptorTable(PBR_ROOT_SCENE_DEPTH, std::array{ sceneDepthSrv })
+                      .AddParamDescriptorTable(PBR_ROOT_SCENE_TLAS_SRV, std::array{ sceneTlasSrv })
                       .AddParamDescriptorTable(PBR_ROOT_HDR_OUTPUT_UAV, std::array{ hdrOutputUav });
         nri::ThrowIfFalse(m_pbrRS.Init(&nri::NRIDevice::Get()));
     }
@@ -607,6 +603,57 @@ namespace Neb
         psoDesc.CS = m_csPBR.GetBinaryBytecode();
         nri::ThrowIfFailed(nri::NRIDevice::Get().GetD3D12Device()->CreateComputePipelineState(
             &psoDesc, IID_PPV_ARGS(m_pbrPipeline.ReleaseAndGetAddressOf())));
+    }
+
+    void DeferredRenderer::InitRTAccelerationStructures(ID3D12GraphicsCommandList4* commandList, Scene* scene)
+    {
+        // Avoid rebuilding AS if scenes are same
+        // TODO: this should not be just a pointer check really...
+        if (m_blas.IsValid() && m_tlas.IsValid() && m_rtScene == scene)
+        {
+            return;
+        }
+        m_rtScene = scene;
+
+        NEB_LOG_INFO("Creating BLAS/TLAS structures...");
+
+        NEB_ASSERT(!scene->StaticMeshes.empty());
+        NEB_LOG_WARN_IF(scene->StaticMeshes.size() > 1, "Currently theres is only ray tracing support for a single static mesh in a scene");
+        
+        nri::StaticMesh& staticMesh = scene->StaticMeshes.front();
+        m_blas = m_asBuilder.CreateBlas(commandList, m_asBuilder.QueryGeometryDescArray(staticMesh));
+
+        nri::RTTopLevelInstance instance = {
+            .blasAccelerationStructure = m_blas.accelerationStructureBuffer,
+            .transformation = staticMesh.InstanceToWorld,
+            .instanceID = 0,    // TODO: Figure it out
+            .hitGroupIndex = 0, // TODO: Change to actually match SBT entry
+            .flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE,
+        };
+
+        m_tlas = m_asBuilder.CreateTlas(commandList, std::span(&instance, 1));
+        NEB_LOG_INFO("Creating BLAS/TLAS structures - Done!");
+
+        NEB_LOG_INFO("Creating TLAS SRV...");
+        {
+            nri::NRIDevice& device = nri::NRIDevice::Get();
+
+            if (m_tlasSrvHeap.IsNull())
+            {
+                m_tlasSrvHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptors(1);
+                NEB_LOG_INFO("Allocated descriptor heap chunk for TLAS");
+            }
+
+            D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+            srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+            srvDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+            srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srvDesc.RaytracingAccelerationStructure = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_SRV{
+                .Location = m_tlas.accelerationStructureBuffer->GetGPUVirtualAddress()
+            };
+            device.GetD3D12Device()->CreateShaderResourceView(nullptr, &srvDesc, m_tlasSrvHeap.CpuAddress);
+        }
+        NEB_LOG_INFO("Creating TLAS SRV - Done!");
     }
 
     void DeferredRenderer::InitHDRTonemapShadersAndRootSignature()
