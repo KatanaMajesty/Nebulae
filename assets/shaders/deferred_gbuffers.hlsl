@@ -65,6 +65,7 @@ struct PSOutput
     float3 albedo : SV_Target0;
     float4 normal : SV_Target1;
     float2 roughnessMetalness : SV_Target2;
+    float4 worldPos : SV_Target3;
 };
 
 PSOutput PSMain(VSOutput input)
@@ -98,5 +99,6 @@ PSOutput PSMain(VSOutput input)
     output.albedo = albedo.rgb;
     output.normal = float4(Oct16_FastPack(GN), Oct16_FastPack(SN));
     output.roughnessMetalness = roughnessMetalness;
+    output.worldPos = float4(input.worldPos, 0.0);
     return output;
 }

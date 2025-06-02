@@ -143,26 +143,22 @@ namespace Neb
 
             ID3D12Resource* resultBuffer = m_hdrResult->GetResource();
             {
-                std::array barriers = { CD3DX12_RESOURCE_BARRIER::Transition(resultBuffer, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_RENDER_TARGET) };
+                std::array barriers = { CD3DX12_RESOURCE_BARRIER::Transition(resultBuffer, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS) };
                 commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
 
                 TransitionGbuffers(commandList,
                     D3D12_RESOURCE_STATE_COMMON,
-                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                     D3D12_RESOURCE_STATE_COMMON,
-                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
             }
 
-            static const Neb::Vec4 clearValue = Neb::Vec4(0.0f);
-            commandList->ClearRenderTargetView(m_pbrRtvHeap.CpuAt(0), &clearValue.x, 0, nullptr);
-            commandList->OMSetRenderTargets(1, &m_pbrRtvHeap.CpuAddress, FALSE, nullptr);
-
-            commandList->SetGraphicsRootSignature(m_pbrRS.GetD3D12RootSignature());
-            commandList->SetGraphicsRootConstantBufferView(PBR_ROOT_CB_VIEW_DATA, m_cbViewData.GetGpuVirtualAddress(info.frameIndex));
-            commandList->SetGraphicsRootConstantBufferView(PBR_ROOT_CB_LIGHT_ENV, m_cbLightEnv.GetGpuVirtualAddress(info.frameIndex));
-            commandList->SetGraphicsRootDescriptorTable(PBR_ROOT_GBUFFERS, m_gbufferSrvHeap.GpuAddress);
-            commandList->SetGraphicsRootDescriptorTable(PBR_ROOT_SCENE_DEPTH, m_depthSrv.GpuAddress);
-
+            commandList->SetComputeRootSignature(m_pbrRS.GetD3D12RootSignature());
+            commandList->SetComputeRootConstantBufferView(PBR_ROOT_CB_VIEW_DATA, m_cbViewData.GetGpuVirtualAddress(info.frameIndex));
+            commandList->SetComputeRootConstantBufferView(PBR_ROOT_CB_LIGHT_ENV, m_cbLightEnv.GetGpuVirtualAddress(info.frameIndex));
+            commandList->SetComputeRootDescriptorTable(PBR_ROOT_GBUFFERS, m_gbufferSrvHeap.GpuAddress);
+            commandList->SetComputeRootDescriptorTable(PBR_ROOT_SCENE_DEPTH, m_depthSrv.GpuAddress);
+            commandList->SetComputeRootDescriptorTable(PBR_ROOT_HDR_OUTPUT_UAV, m_pbrSrvUavHeap.GpuAt(HDR_UAV_INDEX));
             commandList->SetPipelineState(m_pbrPipeline.Get());
 
             const Mat4& view = info.scene->Camera.UpdateLookAt();
@@ -176,23 +172,24 @@ namespace Neb
             std::memcpy(m_cbViewData.GetMapping(info.frameIndex), &viewData, sizeof(CbViewData));
 
             CbLightEnvironment lightEnv = {
-                .intensity = 1.0f,
+                .intensity = 4.0f,
                 .direction = Vec3(0.0f, -1.0f, 0.0f),
-                .radiance = Vec3(2.0f, 1.5f, 1.7f),
+                .radiance = Vec3(4.0f, 2.5f, 2.7f),
             };
             std::memcpy(m_cbLightEnv.GetMapping(info.frameIndex), &lightEnv, sizeof(CbLightEnvironment));
 
             // Fullscreen triangle
-            commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            commandList->DrawInstanced(3, 1, 0, 0);
+            //commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            //commandList->DrawInstanced(3, 1, 0, 0);
+            commandList->Dispatch((width + 7) / 8, (height + 7) / 8, 1); 
             {
                 TransitionGbuffers(commandList,
-                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                     D3D12_RESOURCE_STATE_COMMON,
-                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                     D3D12_RESOURCE_STATE_COMMON);
 
-                auto pbrBarrier = CD3DX12_RESOURCE_BARRIER::Transition(resultBuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON);
+                auto pbrBarrier = CD3DX12_RESOURCE_BARRIER::Transition(resultBuffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
                 commandList->ResourceBarrier(1, &pbrBarrier);
             }
         }
@@ -228,7 +225,7 @@ namespace Neb
             commandList->OMSetRenderTargets(1, &backbufferRtv, FALSE, nullptr);
 
             commandList->SetGraphicsRootSignature(m_tonemapRS.GetD3D12RootSignature());
-            commandList->SetGraphicsRootDescriptorTable(TONEMAP_ROOT_HDR_INPUT, m_pbrSrvHeap.GpuAddress);
+            commandList->SetGraphicsRootDescriptorTable(TONEMAP_ROOT_HDR_INPUT, m_pbrSrvUavHeap.GpuAt(HDR_SRV_INDEX));
             commandList->SetPipelineState(m_tonemapPipeline.Get());
 
             // Fullscreen triangle
@@ -255,6 +252,7 @@ namespace Neb
             CD3DX12_RESOURCE_BARRIER::Transition(GetGbufferAlbedo(), prev, next),
             CD3DX12_RESOURCE_BARRIER::Transition(GetGbufferNormal(), prev, next),
             CD3DX12_RESOURCE_BARRIER::Transition(GetGbufferRoughnessMetalness(), prev, next),
+            CD3DX12_RESOURCE_BARRIER::Transition(GetGbufferWorldPos(), prev, next),
             CD3DX12_RESOURCE_BARRIER::Transition(m_depthStencilBuffer.GetBufferResource(), depthPrev, depthNext),
         };
         commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
@@ -279,6 +277,7 @@ namespace Neb
             commandList->ClearRenderTargetView(m_gbufferRtvHeap.CpuAt(GBUFFER_SLOT_ALBEDO), &gbufferClearColor.x, 0, nullptr);
             commandList->ClearRenderTargetView(m_gbufferRtvHeap.CpuAt(GBUFFER_SLOT_NORMAL), &gbufferClearColor.x, 0, nullptr);
             commandList->ClearRenderTargetView(m_gbufferRtvHeap.CpuAt(GBUFFER_SLOT_ROUGHNESS_METALNESS), &gbufferClearColor.x, 0, nullptr);
+            commandList->ClearRenderTargetView(m_gbufferRtvHeap.CpuAt(GBUFFER_SLOT_WORLD_POS), &gbufferClearColor.x, 0, nullptr);
         }
 
         // set rtvs
@@ -344,6 +343,10 @@ namespace Neb
         m_gbufferRoughnessMetalness = CreateGbufferResource(width, height, DXGI_FORMAT_R16G16_FLOAT);
         NEB_SET_HANDLE_NAME(m_gbufferRoughnessMetalness, "Roughness/Metalness GBuffer DXGI_FORMAT_R16G16B16A16_FLOAT allocation");
         NEB_SET_HANDLE_NAME(m_gbufferRoughnessMetalness->GetResource(), "Roughness/Metalness GBuffer DXGI_FORMAT_R16G16B16A16_FLOAT");
+
+        m_gbufferWorldPos = CreateGbufferResource(width, height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+        NEB_SET_HANDLE_NAME(m_gbufferWorldPos, "World Position GBuffer DXGI_FORMAT_R16G16B16A16_FLOAT allocation");
+        NEB_SET_HANDLE_NAME(m_gbufferWorldPos->GetResource(), "World Position GBuffer DXGI_FORMAT_R16G16B16A16_FLOAT");
     }
 
     void DeferredRenderer::InitGbufferHeaps()
@@ -379,6 +382,7 @@ namespace Neb
         AllocateGbufferSrv(this->GetGbufferAlbedo(), m_gbufferSrvHeap.CpuAt(GBUFFER_SLOT_ALBEDO), DXGI_FORMAT_R11G11B10_FLOAT);
         AllocateGbufferSrv(this->GetGbufferNormal(), m_gbufferSrvHeap.CpuAt(GBUFFER_SLOT_NORMAL), DXGI_FORMAT_R16G16B16A16_FLOAT);
         AllocateGbufferSrv(this->GetGbufferRoughnessMetalness(), m_gbufferSrvHeap.CpuAt(GBUFFER_SLOT_ROUGHNESS_METALNESS), DXGI_FORMAT_R16G16_FLOAT);
+        AllocateGbufferSrv(this->GetGbufferWorldPos(), m_gbufferSrvHeap.CpuAt(GBUFFER_SLOT_WORLD_POS), DXGI_FORMAT_R16G16B16A16_FLOAT);
 
         constexpr auto AllocateGbufferRtv = [](ID3D12Resource* resource,
                                                 D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle,
@@ -396,6 +400,7 @@ namespace Neb
         AllocateGbufferRtv(this->GetGbufferAlbedo(), m_gbufferRtvHeap.CpuAt(GBUFFER_SLOT_ALBEDO), DXGI_FORMAT_R11G11B10_FLOAT);
         AllocateGbufferRtv(this->GetGbufferNormal(), m_gbufferRtvHeap.CpuAt(GBUFFER_SLOT_NORMAL), DXGI_FORMAT_R16G16B16A16_FLOAT);
         AllocateGbufferRtv(this->GetGbufferRoughnessMetalness(), m_gbufferRtvHeap.CpuAt(GBUFFER_SLOT_ROUGHNESS_METALNESS), DXGI_FORMAT_R16G16_FLOAT);
+        AllocateGbufferRtv(this->GetGbufferWorldPos(), m_gbufferRtvHeap.CpuAt(GBUFFER_SLOT_WORLD_POS), DXGI_FORMAT_R16G16B16A16_FLOAT);
     }
 
     void DeferredRenderer::InitGbufferDepthStencilBuffer()
@@ -470,6 +475,7 @@ namespace Neb
         psoDesc.RTVFormats[GBUFFER_SLOT_ALBEDO] = DXGI_FORMAT_R11G11B10_FLOAT;
         psoDesc.RTVFormats[GBUFFER_SLOT_NORMAL] = DXGI_FORMAT_R16G16B16A16_FLOAT;
         psoDesc.RTVFormats[GBUFFER_SLOT_ROUGHNESS_METALNESS] = DXGI_FORMAT_R16G16_FLOAT;
+        psoDesc.RTVFormats[GBUFFER_SLOT_WORLD_POS] = DXGI_FORMAT_R16G16B16A16_FLOAT;
         psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
         psoDesc.SampleDesc = { 1, 0 };
         psoDesc.NodeMask = 0;
@@ -496,16 +502,16 @@ namespace Neb
 
         DXGI_FORMAT format = DXGI_FORMAT_R16G16B16A16_FLOAT;
         D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(format, m_width, m_height, 1, 1);
-        resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
-        Vec4 v = Vec4(0.0f);
+        /*Vec4 v = Vec4(0.0f);
         D3D12_CLEAR_VALUE clearValue = { .Format = format };
-        std::memcpy(clearValue.Color, &v.x, sizeof(clearValue.Color));
+        std::memcpy(clearValue.Color, &v.x, sizeof(clearValue.Color));*/
 
         nri::ThrowIfFailed(allocator->CreateResource(
                                &allocDesc,
                                &resourceDesc,
-                               D3D12_RESOURCE_STATE_COMMON, &clearValue,
+                               D3D12_RESOURCE_STATE_COMMON, nullptr,
                                m_hdrResult.ReleaseAndGetAddressOf(), nri::NullRIID, nullptr),
             "Failed to create PBR result resource");
 
@@ -517,16 +523,10 @@ namespace Neb
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
-        if (m_pbrSrvHeap.IsNull())
+        if (m_pbrSrvUavHeap.IsNull())
         {
-            m_pbrSrvHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptors(1);
-            NEB_ASSERT(!m_pbrSrvHeap.IsNull(), "Failed to allocate SRV descriptors");
-        }
-
-        if (m_pbrRtvHeap.IsNull())
-        {
-            m_pbrRtvHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV).AllocateDescriptors(1);
-            NEB_ASSERT(!m_pbrRtvHeap.IsNull(), "Failed to allocate RTV descriptors");
+            m_pbrSrvUavHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptors(2);
+            NEB_ASSERT(!m_pbrSrvUavHeap.IsNull(), "Failed to allocate SRV descriptors");
         }
 
         constexpr auto AllocateSrv = [](ID3D12Resource* resource,
@@ -543,21 +543,21 @@ namespace Neb
             nri::NRIDevice::Get().GetD3D12Device()->CreateShaderResourceView(resource, &srvDesc, cpuHandle);
         };
 
-        constexpr auto AllocateRtv = [](ID3D12Resource* resource,
+        constexpr auto AllocateUav = [](ID3D12Resource* resource,
                                          D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle,
                                          DXGI_FORMAT format,
-                                         D3D12_RTV_DIMENSION dim = D3D12_RTV_DIMENSION_TEXTURE2D)
+                                         D3D12_UAV_DIMENSION dim = D3D12_UAV_DIMENSION_TEXTURE2D)
         {
-            auto rtvDesc = D3D12_RENDER_TARGET_VIEW_DESC{
+            auto uavDesc = D3D12_UNORDERED_ACCESS_VIEW_DESC{
                 .Format = format, // preserve
                 .ViewDimension = dim,
-                .Texture2D = D3D12_TEX2D_RTV{ .MipSlice = 0, .PlaneSlice = 0 }
+                .Texture2D = D3D12_TEX2D_UAV{ .MipSlice = 0, .PlaneSlice = 0 }
             };
-            nri::NRIDevice::Get().GetD3D12Device()->CreateRenderTargetView(resource, &rtvDesc, cpuHandle);
+            nri::NRIDevice::Get().GetD3D12Device()->CreateUnorderedAccessView(resource, nullptr, &uavDesc, cpuHandle);
         };
 
-        AllocateSrv(this->GetHDROutputResource(), m_pbrSrvHeap.CpuAddress, DXGI_FORMAT_R16G16B16A16_FLOAT);
-        AllocateRtv(this->GetHDROutputResource(), m_pbrRtvHeap.CpuAddress, DXGI_FORMAT_R16G16B16A16_FLOAT);
+        AllocateSrv(this->GetHDROutputResource(), m_pbrSrvUavHeap.CpuAt(HDR_SRV_INDEX), DXGI_FORMAT_R16G16B16A16_FLOAT);
+        AllocateUav(this->GetHDROutputResource(), m_pbrSrvUavHeap.CpuAt(HDR_UAV_INDEX), DXGI_FORMAT_R16G16B16A16_FLOAT);
     }
 
     void DeferredRenderer::InitPBRShadersAndRootSignature()
@@ -566,25 +566,24 @@ namespace Neb
 
         const std::filesystem::path shaderDir = Nebulae::Get().GetSpecification().AssetsDirectory / "shaders";
 
-        m_vsPBR = compiler->CompileShader(
+        /*m_vsPBR = compiler->CompileShader(
             (shaderDir / "fullscreen_triangle_vs.hlsl").string(),
             nri::ShaderCompilationDesc("VSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Vertex),
-            nri::eShaderCompilationFlag_None);
+            nri::eShaderCompilationFlag_None);*/
 
-        m_psPBR = compiler->CompileShader(
+        m_csPBR = compiler->CompileShader(
             (shaderDir / "deferred_pbr.hlsl").string(),
-            nri::ShaderCompilationDesc("PSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Pixel),
-            nri::eShaderCompilationFlag_None);
+            nri::ShaderCompilationDesc("CSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Compute));
 
         D3D12_DESCRIPTOR_RANGE1 gbufferSrvRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, GBUFFER_SLOT_NUM_SLOTS, 0, 1);
         D3D12_DESCRIPTOR_RANGE1 sceneDepthSrv = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
-        m_pbrRS = nri::RootSignature(PBR_ROOT_NUM_ROOTS, 1)
-                          .AddParamCbv(PBR_ROOT_CB_VIEW_DATA, 0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_PIXEL)
-                          .AddParamCbv(PBR_ROOT_CB_LIGHT_ENV, 1, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_PIXEL)
-                          .AddParamDescriptorTable(PBR_ROOT_GBUFFERS, std::array{ gbufferSrvRange }, D3D12_SHADER_VISIBILITY_PIXEL)
-                          .AddParamDescriptorTable(PBR_ROOT_SCENE_DEPTH, std::array{ sceneDepthSrv }, D3D12_SHADER_VISIBILITY_PIXEL)
-                          .AddStaticSampler(0, CD3DX12_STATIC_SAMPLER_DESC(0));
-
+        D3D12_DESCRIPTOR_RANGE1 hdrOutputUav = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0);
+        m_pbrRS = nri::RootSignature(PBR_ROOT_NUM_ROOTS)
+                      .AddParamCbv(PBR_ROOT_CB_VIEW_DATA, 0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC)
+                      .AddParamCbv(PBR_ROOT_CB_LIGHT_ENV, 1, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC)
+                      .AddParamDescriptorTable(PBR_ROOT_GBUFFERS, std::array{ gbufferSrvRange })
+                      .AddParamDescriptorTable(PBR_ROOT_SCENE_DEPTH, std::array{ sceneDepthSrv })
+                      .AddParamDescriptorTable(PBR_ROOT_HDR_OUTPUT_UAV, std::array{ hdrOutputUav });
         nri::ThrowIfFalse(m_pbrRS.Init(&nri::NRIDevice::Get()));
     }
 
@@ -603,23 +602,11 @@ namespace Neb
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
 
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature = m_pbrRS.GetD3D12RootSignature();
-        psoDesc.VS = m_vsPBR.GetBinaryBytecode();
-        psoDesc.PS = m_psPBR.GetBinaryBytecode();
-        psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-        psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-        psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-        psoDesc.SampleMask = UINT_MAX;
-        psoDesc.InputLayout = D3D12_INPUT_LAYOUT_DESC();
-        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        psoDesc.NumRenderTargets = 1;
-        psoDesc.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
-        psoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
-        psoDesc.SampleDesc = { 1, 0 };
-        psoDesc.NodeMask = 0;
-        psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
-        nri::ThrowIfFailed(device.GetD3D12Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(m_pbrPipeline.ReleaseAndGetAddressOf())));
+        psoDesc.CS = m_csPBR.GetBinaryBytecode();
+        nri::ThrowIfFailed(nri::NRIDevice::Get().GetD3D12Device()->CreateComputePipelineState(
+            &psoDesc, IID_PPV_ARGS(m_pbrPipeline.ReleaseAndGetAddressOf())));
     }
 
     void DeferredRenderer::InitHDRTonemapShadersAndRootSignature()
@@ -661,7 +648,5 @@ namespace Neb
         nri::ThrowIfFailed(nri::NRIDevice::Get().GetD3D12Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(m_tonemapPipeline.ReleaseAndGetAddressOf())),
             "Failed to create tonemapping pipeline");
     }
-
-   
 
 } // Neb namespace

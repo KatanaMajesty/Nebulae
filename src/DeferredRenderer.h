@@ -49,6 +49,7 @@ namespace Neb
         ID3D12Resource* GetGbufferAlbedo() const { return m_gbufferAlbedo->GetResource(); }
         ID3D12Resource* GetGbufferNormal() const { return m_gbufferNormal->GetResource(); }
         ID3D12Resource* GetGbufferRoughnessMetalness() const { return m_gbufferRoughnessMetalness->GetResource(); }
+        ID3D12Resource* GetGbufferWorldPos() const { return m_gbufferWorldPos->GetResource(); }
 
         nri::DepthStencilBuffer& GetDepthStencilBuffer() { return m_depthStencilBuffer; }
         const nri::DepthStencilBuffer& GetDepthStencilBuffer() const { return m_depthStencilBuffer; }
@@ -93,11 +94,13 @@ namespace Neb
         nri::Rc<D3D12MA::Allocation> m_gbufferAlbedo;
         nri::Rc<D3D12MA::Allocation> m_gbufferNormal;
         nri::Rc<D3D12MA::Allocation> m_gbufferRoughnessMetalness;
+        nri::Rc<D3D12MA::Allocation> m_gbufferWorldPos;
         enum EGbufferSlot
         {
             GBUFFER_SLOT_ALBEDO = 0,
             GBUFFER_SLOT_NORMAL = 1,
             GBUFFER_SLOT_ROUGHNESS_METALNESS = 2,
+            GBUFFER_SLOT_WORLD_POS = 3,
             GBUFFER_SLOT_NUM_SLOTS, // represents the number of gbuffers (and the number of descriptors in the heap allocation)
         };
         nri::DescriptorHeapAllocation m_gbufferSrvHeap;
@@ -123,19 +126,24 @@ namespace Neb
         void InitPBRPipeline();
 
         nri::Rc<D3D12MA::Allocation> m_hdrResult;
-        nri::DescriptorHeapAllocation m_pbrSrvHeap;
-        nri::DescriptorHeapAllocation m_pbrRtvHeap;
+        enum EHdrViewSlot // represents index of SrvUav heap where respective Srv/Uav is stored
+        {
+            HDR_SRV_INDEX = 0,
+            HDR_UAV_INDEX = 1,
+        };
+        nri::DescriptorHeapAllocation m_pbrSrvUavHeap;
         enum EPbrRoots
         {
             PBR_ROOT_CB_VIEW_DATA = 0,
             PBR_ROOT_CB_LIGHT_ENV,
             PBR_ROOT_GBUFFERS,
             PBR_ROOT_SCENE_DEPTH,
+            PBR_ROOT_HDR_OUTPUT_UAV,
             PBR_ROOT_NUM_ROOTS,
         };
         nri::RootSignature m_pbrRS;
-        nri::Shader m_vsPBR;
-        nri::Shader m_psPBR;
+        //nri::Shader m_vsPBR;
+        nri::Shader m_csPBR;
         nri::ConstantBuffer m_cbViewData;
         nri::ConstantBuffer m_cbLightEnv;
         nri::Rc<ID3D12PipelineState> m_pbrPipeline;
@@ -149,7 +157,7 @@ namespace Neb
             TONEMAP_ROOT_NUM_ROOTS,
         };
         nri::RootSignature m_tonemapRS;
-        nri::Shader m_vsTonemap; // TODO: This should effectively be cached by nri::ShaderCompiler as it is the same as m_vsPBR (fs triangle)
+        nri::Shader m_vsTonemap;
         nri::Shader m_psTonemap;
         nri::Rc<ID3D12PipelineState> m_tonemapPipeline;
     };
