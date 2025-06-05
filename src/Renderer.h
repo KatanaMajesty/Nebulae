@@ -42,8 +42,9 @@ namespace Neb
         UINT GetWidth() const { return m_swapchain.GetWidth(); }
         UINT GetHeight() const { return m_swapchain.GetHeight(); }
 
+        UINT GetFrameIndex() const { return m_frameIndex; }
+
     private:
-        void PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene);
         void SubmitCommandList(nri::ECommandContextType contextType, ID3D12CommandList* commandList, ID3D12Fence* fence, UINT fenceValue);
 
         void BeginCommandList(nri::ECommandContextType contextType);
@@ -60,6 +61,8 @@ namespace Neb
             EndCommandList(contextType, frameIndex);
         }
 
+        ID3D12GraphicsCommandList4* GetCommandList() const { return m_commandList.Get(); }
+
         // Synchronizes with in-flight, waits if needed
         // returns  frame index of the next frame (as a swapchain's backbuffer index)
         UINT NextFrame();
@@ -69,34 +72,16 @@ namespace Neb
 
         HWND m_hwnd = nullptr;
         Scene* m_scene = nullptr;
+        UINT m_frameIndex = 0;
 
         nri::Swapchain m_swapchain;
-        nri::DepthStencilBuffer m_depthStencilBuffer;
         nri::D3D12Rc<ID3D12Fence> m_fence;
-        UINT m_frameIndex = 0;
+        UINT m_backbufferIndex = 0;
         UINT64 m_fenceValues[NumInflightFrames];
 
         void InitCommandList();
         nri::D3D12Rc<ID3D12GraphicsCommandList4> m_commandList;
         nri::D3D12Rc<ID3D12CommandAllocator> m_currentCmdAllocator;
-
-        enum ERendererRoots
-        {
-            eRendererRoots_InstanceInfo = 0,
-            eRendererRoots_MaterialTextures,
-            eRendererRoots_NumRoots,
-        };
-
-        void InitRootSignatureAndShaders();
-        nri::RootSignature m_rootSignature;
-        nri::Shader m_vsBasic;
-        nri::Shader m_psBasic;
-
-        void InitPipelineState();
-        nri::D3D12Rc<ID3D12PipelineState> m_pipelineState;
-
-        void InitInstanceCb();
-        nri::ConstantBuffer m_cbInstance;
 
         // Deferred renderer is scene-agnostic, should be initialized in Init()
         DeferredRenderer m_deferredRenderer;
@@ -104,6 +89,8 @@ namespace Neb
         // Opposed to deferred renderer RtScene should be initialized in InitSceneContext(), 
         // as it contains BLAS/TLAS that are dependant on the scene
         RtScene m_raytracer;
+
+        void InitRtxgiContext(UINT width, UINT height, Scene* scene);
     };
 
 }

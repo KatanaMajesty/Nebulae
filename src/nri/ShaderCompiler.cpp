@@ -124,6 +124,9 @@ namespace Neb::nri
         if (flags & eShaderCompilationFlag_StripReflect)
             dxcArguments.push_back(L"-Qstrip_reflect");
 
+        if (flags & eShaderCompilationFlag_Enable16BitTypes)
+            dxcArguments.push_back(L"-enable-16bit-types");
+
         D3D12Rc<IDxcCompilerArgs> compilerArgs;
         ThrowIfFailed(m_dxcUtils->BuildArguments(
             filepath.data(),

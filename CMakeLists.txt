@@ -47,6 +47,8 @@ target_sources(DXRNebulae PRIVATE
     "src/nri/nvidia/NsightAftermathHelpers.h"
     "src/nri/nvidia/NvApi.cpp"
     "src/nri/nvidia/NvApi.h"
+    "src/nri/nvidia/NvRtxgiNRC.cpp"
+    "src/nri/nvidia/NvRtxgiNRC.h"
 
     "src/nri/raytracing/RTAccelerationStructureBuilder.cpp"
     "src/nri/raytracing/RTAccelerationStructureBuilder.h"
@@ -135,6 +137,10 @@ target_sources(DXRNebulae PRIVATE
     "${NV_DXRHELPER_DIR}/nv_helpers_dx12/TopLevelASGenerator.h"
 )
 
+set(NV_RTXGI_NRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/NVIDIA/RTXGI/Nrc")
+target_include_directories(DXRNebulae PRIVATE "${NV_RTXGI_NRC_DIR}/Include")
+target_link_directories(DXRNebulae PRIVATE "${NV_RTXGI_NRC_DIR}/Lib")
+
 set(NV_API_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/NVIDIA/NvApi")
 
 # ImGui sources
@@ -176,6 +182,7 @@ target_link_libraries(DXRNebulae
     "GFSDK_Aftermath_Lib.x64.lib"
     "imgui"
     "${NV_API_DIR}/nvapi64.lib"
+    "NRC_D3D12"
 )
 
 # Copy DLLs to the out path
@@ -183,6 +190,11 @@ target_link_libraries(DXRNebulae
 list(APPEND NEBULAE_DLL_LIST ${CMAKE_CURRENT_SOURCE_DIR}/vendor/dxcompiler.dll)
 list(APPEND NEBULAE_DLL_LIST ${CMAKE_CURRENT_SOURCE_DIR}/vendor/dxil.dll)
 list(APPEND NEBULAE_DLL_LIST ${NV_GFSDK_AFTERMATH_LIBRARY_DIR}/GFSDK_Aftermath_Lib.x64.dll)
+# For RTXGI NRC
+list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/cudart64_12.dll)
+list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/NRC_D3D12.dll)
+list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/nvrtc-builtins64_125.dll)
+list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/nvrtc64_120_0.dll)
 # Join the list elements with a space separator
 string(REPLACE ";" " " my_list_str "${NEBULAE_DLL_LIST}")
 

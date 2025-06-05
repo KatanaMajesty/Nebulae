@@ -443,7 +443,7 @@ namespace Neb
             nri::StaticMesh& staticMesh = scene->StaticMeshes.emplace_back();
 
             tinygltf::Mesh& mesh = m_GLTFModel.meshes[node.mesh];
-            if (!ImportStaticMesh(staticMesh, mesh))
+            if (!ImportStaticMesh(staticMesh, mesh, &scene->SceneBox))
             {
                 NEB_LOG_ERROR("GLTFSceneImporter::ImportScene -> Failed to import static mesh \"{}\"... Returning!", mesh.name);
                 return false;
@@ -466,7 +466,7 @@ namespace Neb
         return true;
     }
 
-    bool GLTFSceneImporter::ImportStaticMesh(nri::StaticMesh& mesh, tinygltf::Mesh& src)
+    bool GLTFSceneImporter::ImportStaticMesh(nri::StaticMesh& mesh, tinygltf::Mesh& src, AABB* pUpdatedSceneAABB)
     {
         // For glTF 2.0 Spec meshes overview chill here - https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes-overview
         for (tinygltf::Primitive& primitive : src.primitives)
@@ -496,6 +496,10 @@ namespace Neb
             // Set amount of vertices before processing (to get more healthy checks)
             submesh.NumVertices = m_GLTFModel.accessors[primitive.attributes["POSITION"]].count;
 
+            // update scene AABB for each position attribute
+            NEB_ASSERT(pUpdatedSceneAABB != nullptr);
+            AABB& sceneAABB = *pUpdatedSceneAABB;
+
             // Process each attribute separately
             for (auto& [attribute, type] : AttributeMap)
             {
@@ -504,6 +508,25 @@ namespace Neb
                     continue;
 
                 tinygltf::Accessor& accessor = m_GLTFModel.accessors[primitive.attributes[attribute]];
+                if (type == nri::eAttributeType_Position)
+                {
+                    NEB_ASSERT(!accessor.minValues.empty(), "No 'minValue' in accessor {}", accessor.name);
+                    NEB_ASSERT(!accessor.maxValues.empty(), "No 'maxValue' in accessor {}", accessor.name);                    
+                    NEB_ASSERT(accessor.minValues.size() == 3 && accessor.maxValues.size() == 3, "only vec3");
+
+                    Vec3 min = Vec3();
+                    min.x = float(accessor.minValues[0]);
+                    min.y = float(accessor.minValues[1]);
+                    min.z = float(accessor.minValues[2]);
+
+                    Vec3 max = Vec3();
+                    max.x = float(accessor.maxValues[0]);
+                    max.y = float(accessor.maxValues[1]);
+                    max.z = float(accessor.maxValues[2]);
+
+                    sceneAABB.min = Vec3::Min(sceneAABB.min, min);
+                    sceneAABB.max = Vec3::Max(sceneAABB.max, max);
+                }
 
                 // should be equal, otherwise our bad
                 NEB_ASSERT(accessor.count == submesh.NumVertices, "Just a healthy check to ensure everything is correct up to this point");

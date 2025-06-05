@@ -8,6 +8,7 @@
 
 #include "nri/Device.h"
 #include "nri/nvidia/NsightAftermathCrashTracker.h"
+#include "nri/nvidia/NvRtxgiNRC.h"
 #include "nri/imgui/UiContext.h"
 #include "ArgumentParser.h"
 #include "Nebulae.h"
@@ -265,6 +266,7 @@ int32_t main(int argc, char* argv[])
 
     Neb::nri::NvNsightAftermathCrashTracker::Get()->Init();
     Neb::nri::NRIDevice::Get().Init();
+    Neb::nri::NvRtxgiNRCIntegration::Get()->Init();
 
     HWND hwnd = CreateWindowEx(
         0,                   // Optional window styles.
@@ -312,6 +314,7 @@ int32_t main(int argc, char* argv[])
 
     nebulae.Shutdown();
 
+    Neb::nri::NvRtxgiNRCIntegration::Get()->Destroy();
     Neb::nri::NRIDevice::Get().Deinit();
     Neb::nri::NvNsightAftermathCrashTracker::Get()->Destroy();
 

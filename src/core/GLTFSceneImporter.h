@@ -53,7 +53,7 @@ namespace Neb
 
         // Node processing
         bool ImportGLTFNode(Scene* scene, tinygltf::Scene& src, int32_t nodeID);
-        bool ImportStaticMesh(nri::StaticMesh& mesh, tinygltf::Mesh& src);
+        bool ImportStaticMesh(nri::StaticMesh& mesh, tinygltf::Mesh& src, AABB* pUpdatedSceneAABB);
 
         Mat4 GetTransformationMatrix(tinygltf::Node& node);
 

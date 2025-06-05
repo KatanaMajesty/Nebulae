@@ -11,6 +11,7 @@
 #include "nri/RootSignature.h"
 #include "nri/raytracing/RTAccelerationStructureBuilder.h"
 #include "nri/raytracing/RTCommon.h"
+#include "nri/nvidia/NvRtxgiNRC.h"
 
 namespace Neb
 {
@@ -49,6 +50,10 @@ namespace Neb
         bool Init(UINT width, UINT height, nri::Swapchain* swapchain);
         void Resize(UINT width, UINT height);
 
+        // Frame index is an always incremental ID of the frame, not the swapchain index
+        void BeginFrame(UINT frameIndex);
+        void EndFrame();
+
         ID3D12Resource* GetGbufferAlbedo() const { return m_gbufferAlbedo->GetResource(); }
         ID3D12Resource* GetGbufferNormal() const { return m_gbufferNormal->GetResource(); }
         ID3D12Resource* GetGbufferRoughnessMetalness() const { return m_gbufferRoughnessMetalness->GetResource(); }
@@ -59,12 +64,14 @@ namespace Neb
         
         ID3D12Resource* GetHDROutputResource() const { return m_hdrResult->GetResource(); }
 
+        void SubmitUICommands();
+
         // Performs deferred rendering into a swapchain provided in InitDesc
         struct RenderInfo
         {
             Scene* scene;
             ID3D12GraphicsCommandList4* commandList;
-            UINT frameIndex;
+            UINT backbufferIndex;
             float timestep;
         };
         void SubmitCommandsGbuffer(const RenderInfo& info);
@@ -80,15 +87,29 @@ namespace Neb
         void SetupGbufferRtvs(ID3D12GraphicsCommandList4* commandList);
         void SetupViewports(ID3D12GraphicsCommandList4* commandList);
 
+        NrcConstants& GetNrcConstants() { return m_nrcConstants; }
+        const NrcConstants& GetNrcConstants() const { return m_nrcConstants; }
+
+        Scene* GetCurrentScene() const { return m_rtScene; }
+
     private:
         UINT m_width = 0;
         UINT m_height = 0;
         nri::Swapchain* m_swapchain = nullptr;
 
+        UINT m_frameIndex;
+
+        struct SceneSunUI
+        {
+            float roughDiameter = 0.58f; // Rough estimate of sun diameter as seen from Earth
+            Vec3 direction = Vec3(0.66f, -1.0f, -0.2f);
+            Vec3 radiance = Vec3(2.0f, 1.94f, 1.9f);
+        } m_sceneSunUI;
+
         void InitGbuffers();
         void InitGbufferHeaps();
         void InitGbufferDepthStencilBuffer();
-        void InitGbufferDepthSrv();
+        void InitGbufferDepthStencilSrv();
         void InitGbufferShadersAndRootSignatures();
         void InitGbufferPipelineState();
         void InitGbufferInstanceCb();
@@ -108,7 +129,7 @@ namespace Neb
         nri::DescriptorHeapAllocation m_gbufferSrvHeap;
         nri::DescriptorHeapAllocation m_gbufferRtvHeap;
         nri::DepthStencilBuffer m_depthStencilBuffer;
-        nri::DescriptorHeapAllocation m_depthSrv;
+        nri::DescriptorHeapAllocation m_depthStencilSrvHeap; // depth at index 0, stencil at index 1
         enum EDeferredRendererRoots
         {
             DEFERRED_RENDERER_ROOTS_INSTANCE_INFO = 0,
@@ -140,6 +161,7 @@ namespace Neb
             PBR_ROOT_CB_LIGHT_ENV,
             PBR_ROOT_GBUFFERS,
             PBR_ROOT_SCENE_DEPTH,
+            PBR_ROOT_SCENE_STENCIL,
             PBR_ROOT_SCENE_TLAS_SRV,
             PBR_ROOT_HDR_OUTPUT_UAV,
             PBR_ROOT_NUM_ROOTS,
@@ -173,6 +195,24 @@ namespace Neb
         nri::Shader m_vsTonemap;
         nri::Shader m_psTonemap;
         nri::Rc<ID3D12PipelineState> m_tonemapPipeline;
+
+        void InitPathtracerShadersAndRootSignature();
+        void InitPathtracerPipeline();
+        void InitPathtracerBindlessDescriptors(Scene* scene); // scene is specified explicitly to allow for independent re-configurations of heaps
+
+        NrcConstants m_nrcConstants;
+        nri::Rc<ID3D12StateObject> m_rtPso;
+        nri::Rc<ID3D12StateObjectProperties> m_rtPsoProperties;
+        nri::Shader m_rsPathtracer;
+        nri::RootSignature m_giGlobalRS;
+        nri::RootSignature m_giRayGenRS;
+        nri::RootSignature m_giRayClosestHitRS;
+        nri::RootSignature m_giRayMissRS;
+        // FYI -> This technically relies on mesh/vertices layout inside BLAS builders
+        // if changing/sorting/optimizing meshlets/vertices you would also need to align here with it, so that
+        // during RT shader execution GeometryIndex() and PrimitiveIndex() function calls were fine
+        nri::DescriptorHeapAllocation m_bindlessTextures;
+        nri::DescriptorHeapAllocation m_bindlessBuffers;
     };
 
 } // Neb namespace

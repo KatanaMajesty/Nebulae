@@ -27,6 +27,8 @@ namespace Neb
         InspectCamera Camera;
         bool AbleToInspect = false;
         float ScrollSpeedFactor = 0.25f; // 0.5f if fast, 0.25f for default
+
+        AABB SceneBox;
     };
 
 } // Neb namespace

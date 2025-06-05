@@ -5,6 +5,7 @@
 #include "nri/Device.h"
 #include "nri/DescriptorHeap.h"
 #include "nri/ShaderCompiler.h"
+#include "nri/imgui/UiContext.h"
 
 #include <format>
 
@@ -20,7 +21,7 @@ namespace Neb
         InitGbuffers();
         InitGbufferHeaps();
         InitGbufferDepthStencilBuffer();
-        InitGbufferDepthSrv();
+        InitGbufferDepthStencilSrv();
         InitGbufferShadersAndRootSignatures();
         InitGbufferPipelineState();
         InitGbufferInstanceCb();
@@ -33,6 +34,8 @@ namespace Neb
 
         InitHDRTonemapShadersAndRootSignature();
         InitHDRTonemapPipeline(m_swapchain->GetFormat());
+
+        InitPathtracerShadersAndRootSignature();
 
         return true;
     }
@@ -49,10 +52,28 @@ namespace Neb
         nri::ThrowIfFalse(m_depthStencilBuffer.Resize(width, height), "Failed to resize depth stencil buffer");
         InitGbuffers();
         InitGbufferHeaps();
-        InitGbufferDepthSrv();
+        InitGbufferDepthStencilSrv();
 
         InitPBRResources();
         InitPBRDescriptorHeaps();
+    }
+
+    void DeferredRenderer::BeginFrame(UINT frameIndex)
+    {
+        m_frameIndex = frameIndex;
+    }
+
+    void DeferredRenderer::EndFrame()
+    {
+    }
+
+    void DeferredRenderer::SubmitUICommands()
+    {
+        ImGui::Begin("Sun settings");
+        ImGui::SliderFloat("Sun diameter", &m_sceneSunUI.roughDiameter, 0.0f, 8.0f);
+        ImGui::DragFloat3("Sun direction", &m_sceneSunUI.direction.x, 0.02f, -1.0f, 1.0f);
+        ImGui::SliderFloat3("Sun radiance", &m_sceneSunUI.radiance.x, 0.0f, 8.0f);
+        ImGui::End();
     }
 
     void DeferredRenderer::SubmitCommandsGbuffer(const RenderInfo& info)
@@ -81,8 +102,9 @@ namespace Neb
 
             // Setup PSO
             commandList->SetGraphicsRootSignature(m_gbufferRS.GetD3D12RootSignature());
-            commandList->SetGraphicsRootConstantBufferView(DEFERRED_RENDERER_ROOTS_INSTANCE_INFO, m_cbInstance.GetGpuVirtualAddress(info.frameIndex));
+            commandList->SetGraphicsRootConstantBufferView(DEFERRED_RENDERER_ROOTS_INSTANCE_INFO, m_cbInstance.GetGpuVirtualAddress(info.backbufferIndex));
             commandList->SetPipelineState(m_pipelineState.Get());
+            commandList->OMSetStencilRef(0xff);
 
             // pre-calculate view/projection before looping
             const Mat4& view = info.scene->Camera.UpdateLookAt();
@@ -107,7 +129,7 @@ namespace Neb
                         .ViewProj = view * projection,
                         .MaterialFlags = material.Flags // TODO: Would be nice to have a separate constant buffer for material properties
                     };
-                    std::memcpy(m_cbInstance.GetMapping<CbInstanceInfo>(info.frameIndex), &cbInstanceInfo, sizeof(CbInstanceInfo));
+                    std::memcpy(m_cbInstance.GetMapping<CbInstanceInfo>(info.backbufferIndex), &cbInstanceInfo, sizeof(CbInstanceInfo));
 
                     commandList->SetGraphicsRootDescriptorTable(DEFERRED_RENDERER_ROOTS_MATERIAL_TEXTURES, material.SrvRange.GpuAddress);
 
@@ -157,10 +179,11 @@ namespace Neb
             }
 
             commandList->SetComputeRootSignature(m_pbrRS.GetD3D12RootSignature());
-            commandList->SetComputeRootConstantBufferView(PBR_ROOT_CB_VIEW_DATA, m_cbViewData.GetGpuVirtualAddress(info.frameIndex));
-            commandList->SetComputeRootConstantBufferView(PBR_ROOT_CB_LIGHT_ENV, m_cbLightEnv.GetGpuVirtualAddress(info.frameIndex));
+            commandList->SetComputeRootConstantBufferView(PBR_ROOT_CB_VIEW_DATA, m_cbViewData.GetGpuVirtualAddress(info.backbufferIndex));
+            commandList->SetComputeRootConstantBufferView(PBR_ROOT_CB_LIGHT_ENV, m_cbLightEnv.GetGpuVirtualAddress(info.backbufferIndex));
             commandList->SetComputeRootDescriptorTable(PBR_ROOT_GBUFFERS, m_gbufferSrvHeap.GpuAddress);
-            commandList->SetComputeRootDescriptorTable(PBR_ROOT_SCENE_DEPTH, m_depthSrv.GpuAddress);
+            commandList->SetComputeRootDescriptorTable(PBR_ROOT_SCENE_DEPTH, m_depthStencilSrvHeap.GpuAt(0));
+            commandList->SetComputeRootDescriptorTable(PBR_ROOT_SCENE_STENCIL, m_depthStencilSrvHeap.GpuAt(1));
             commandList->SetComputeRootDescriptorTable(PBR_ROOT_SCENE_TLAS_SRV, m_tlasSrvHeap.GpuAddress);
             commandList->SetComputeRootDescriptorTable(PBR_ROOT_HDR_OUTPUT_UAV, m_pbrSrvUavHeap.GpuAt(HDR_UAV_INDEX));
             commandList->SetPipelineState(m_pbrPipeline.Get());
@@ -173,18 +196,15 @@ namespace Neb
                 .viewInv = view.Invert(),
                 .projInv = projection.Invert(),
             };
-            std::memcpy(m_cbViewData.GetMapping(info.frameIndex), &viewData, sizeof(CbViewData));
+            std::memcpy(m_cbViewData.GetMapping(info.backbufferIndex), &viewData, sizeof(CbViewData));
 
-            float diameterDeg = 0.58f;
-
-            static uint32_t fIdx = 0;
             CbLightEnvironment lightEnv = {
-                .direction = Vec3(-0.5f, -1.0f, -0.1f),
-                .tanHalfAngle = tanf(ToRadians(diameterDeg * 0.5f)),
-                .radiance = Vec3(2.0f, 1.94f, 1.9f),
-                .frameIndex = fIdx++,
+                .direction = m_sceneSunUI.direction,
+                .tanHalfAngle = tanf(ToRadians(m_sceneSunUI.roughDiameter * 0.5f)),
+                .radiance = m_sceneSunUI.radiance,
+                .frameIndex = m_frameIndex,
             };
-            std::memcpy(m_cbLightEnv.GetMapping(info.frameIndex), &lightEnv, sizeof(CbLightEnvironment));
+            std::memcpy(m_cbLightEnv.GetMapping(info.backbufferIndex), &lightEnv, sizeof(CbLightEnvironment));
 
             commandList->Dispatch((width + 7) / 8, (height + 7) / 8, 1); 
             {
@@ -207,7 +227,6 @@ namespace Neb
         UINT width = swapchain->GetWidth();
         UINT height = swapchain->GetHeight();
 
-        //commandList = commandList;
         {
             SetupDescriptorHeaps(commandList);
             
@@ -287,7 +306,7 @@ namespace Neb
 
         // set rtvs
         const nri::DescriptorHeapAllocation& dsvDescriptor = m_depthStencilBuffer.GetDSV();
-        commandList->ClearDepthStencilView(dsvDescriptor.CpuAt(0), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+        commandList->ClearDepthStencilView(dsvDescriptor.CpuAt(0), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
         commandList->OMSetRenderTargets(
             GBUFFER_SLOT_NUM_SLOTS,
             &m_gbufferRtvHeap.CpuAddress, TRUE, &m_depthStencilBuffer.GetDSV().CpuAddress);
@@ -418,18 +437,26 @@ namespace Neb
         NEB_SET_HANDLE_NAME(m_depthStencilBuffer.GetBufferResource(), "Deferred scene depth");
     }
 
-    void DeferredRenderer::InitGbufferDepthSrv()
+    void DeferredRenderer::InitGbufferDepthStencilSrv()
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
-        m_depthSrv = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptors(1);
+        m_depthStencilSrvHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptors(2);
 
-        D3D12_SHADER_RESOURCE_VIEW_DESC desc = {
+        D3D12_SHADER_RESOURCE_VIEW_DESC depthDesc = {
             .Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS,
             .ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
             .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
             .Texture2D = D3D12_TEX2D_SRV{ .MostDetailedMip = 0, .MipLevels = 1, .PlaneSlice = 0 }
         };
-        device.GetD3D12Device()->CreateShaderResourceView(m_depthStencilBuffer.GetBufferResource(), &desc, m_depthSrv.CpuAddress);
+        device.GetD3D12Device()->CreateShaderResourceView(m_depthStencilBuffer.GetBufferResource(), &depthDesc, m_depthStencilSrvHeap.CpuAt(0));
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC stencilDesc = {
+            .Format = DXGI_FORMAT_X24_TYPELESS_G8_UINT,
+            .ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+            .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+            .Texture2D = D3D12_TEX2D_SRV{ .MostDetailedMip = 0, .MipLevels = 1, .PlaneSlice = 1 }
+        };
+        device.GetD3D12Device()->CreateShaderResourceView(m_depthStencilBuffer.GetBufferResource(), &stencilDesc, m_depthStencilSrvHeap.CpuAt(1));
     }
 
     void DeferredRenderer::InitGbufferShadersAndRootSignatures()
@@ -470,6 +497,14 @@ namespace Neb
         psoDesc.RasterizerState.FrontCounterClockwise = TRUE; // glTF 2.0 spec: the winding order triangle faces is CCW
         psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
         psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+        psoDesc.DepthStencilState.StencilEnable = true; // Enable stencil to obtain scene geometry data (for RT to fast 'miss')
+        psoDesc.DepthStencilState.FrontFace = D3D12_DEPTH_STENCILOP_DESC{
+            .StencilFailOp = D3D12_STENCIL_OP_KEEP,
+            .StencilDepthFailOp = D3D12_STENCIL_OP_KEEP,
+            .StencilPassOp = D3D12_STENCIL_OP_REPLACE,
+            .StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS,
+        };
+        //psoDesc.DepthStencilState.BackFace = psoDesc.DepthStencilState.FrontFace; // Same for backfacing
         psoDesc.SampleMask = UINT_MAX;
         psoDesc.InputLayout = D3D12_INPUT_LAYOUT_DESC{
             .pInputElementDescs = nri::StaticMeshInputLayout.data(),
@@ -571,13 +606,15 @@ namespace Neb
 
         D3D12_DESCRIPTOR_RANGE1 gbufferSrvRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, GBUFFER_SLOT_NUM_SLOTS, 0, 1);
         D3D12_DESCRIPTOR_RANGE1 sceneDepthSrv = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
-        D3D12_DESCRIPTOR_RANGE1 sceneTlasSrv = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0);
+        D3D12_DESCRIPTOR_RANGE1 sceneStencilSrv = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0);
+        D3D12_DESCRIPTOR_RANGE1 sceneTlasSrv = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 0);
         D3D12_DESCRIPTOR_RANGE1 hdrOutputUav = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0);
         m_pbrRS = nri::RootSignature(PBR_ROOT_NUM_ROOTS)
                       .AddParamCbv(PBR_ROOT_CB_VIEW_DATA, 0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC)
                       .AddParamCbv(PBR_ROOT_CB_LIGHT_ENV, 1, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC)
                       .AddParamDescriptorTable(PBR_ROOT_GBUFFERS, std::array{ gbufferSrvRange })
                       .AddParamDescriptorTable(PBR_ROOT_SCENE_DEPTH, std::array{ sceneDepthSrv })
+                      .AddParamDescriptorTable(PBR_ROOT_SCENE_STENCIL, std::array{ sceneStencilSrv })
                       .AddParamDescriptorTable(PBR_ROOT_SCENE_TLAS_SRV, std::array{ sceneTlasSrv })
                       .AddParamDescriptorTable(PBR_ROOT_HDR_OUTPUT_UAV, std::array{ hdrOutputUav });
         nri::ThrowIfFalse(m_pbrRS.Init(&nri::NRIDevice::Get()));
@@ -694,6 +731,59 @@ namespace Neb
         psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
         nri::ThrowIfFailed(nri::NRIDevice::Get().GetD3D12Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(m_tonemapPipeline.ReleaseAndGetAddressOf())),
             "Failed to create tonemapping pipeline");
+    }
+
+    void DeferredRenderer::InitPathtracerShadersAndRootSignature()
+    {
+        const std::filesystem::path shaderDirectory = Nebulae::Get().GetSpecification().AssetsDirectory / "shaders";
+        const std::filesystem::path shaderFilepath = shaderDirectory / "pathtracer.hlsl";
+
+        m_rsPathtracer = nri::ShaderCompiler::Get()->CompileLibrary(
+            shaderFilepath.string(),
+            nri::LibraryCompilationDesc(),
+            nri::eShaderCompilationFlag_Enable16BitTypes); // NRC needs 16-bit types to be enabled/supported
+
+        NEB_ASSERT(m_rsPathtracer.HasBinary(), "Failed to compile basic RT shader: {}", shaderFilepath.string());
+
+        //nri::NRIDevice& device = nri::NRIDevice::Get();
+        //{
+        //    // Initialize root signatures for RT pathtracer
+        //    D3D12_DESCRIPTOR_RANGE1 tlasSrv = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+        //    m_giGlobalRS = nri::RootSignature(eGlobalRoot_NumRoots)
+        //                          .AddParamCbv(eGlobalRoot_CbViewInfo, 0)
+        //                          .AddParamCbv(eGlobalRoot_CbWorldInfo, 1)
+        //                          .AddParamDescriptorTable(eGlobalRoot_SrvTlas, std::array{ tlasSrv });
+        //}
+        //
+
+        //nri::ThrowIfFalse(m_basicGlobalRS.Init(&device), "failed to init global rs for rt scene");
+
+        //D3D12_DESCRIPTOR_RANGE1 outputTextureUav = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
+        //m_rayGenRS = nri::RootSignature(eRaygenRoot_NumRoots)
+        //                 .AddParamDescriptorTable(eRaygenRoot_OutputUav, std::array{ outputTextureUav });
+
+        //nri::ThrowIfFalse(m_rayGenRS.Init(&device, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE));
+
+        ///* clang-format off */
+        //const nri::RootSignature emptyLocalRS = nri::RootSignature::Empty(&device, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+        //m_rayClosestHitRS   = emptyLocalRS;
+        //m_rayMissRS         = emptyLocalRS;
+        //m_shadowHitRS       = emptyLocalRS;
+        //m_shadowMissRS      = emptyLocalRS;
+        ///* clang-format on */
+        //return true;
+    }
+
+    void DeferredRenderer::InitPathtracerPipeline()
+    {
+    }
+
+    void DeferredRenderer::InitPathtracerBindlessDescriptors(Scene* scene)
+    {
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        nri::DescriptorHeap& heap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+        
     }
 
 } // Neb namespace

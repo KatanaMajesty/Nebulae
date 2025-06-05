@@ -22,6 +22,13 @@ namespace Neb::nri
 
         // Strips RDAT from Object
         eShaderCompilationFlag_StripReflect = 2,
+
+        // scalars were introduced in HLSL Shader Model 6.2
+        // adds such types as float16_t, uint16_t, int16_t and respective tensors
+        // see: https://github.com/microsoft/DirectXShaderCompiler/wiki/16-Bit-Scalar-Types
+        //
+        // adds '-enable-16bit-types' during compilation
+        eShaderCompilationFlag_Enable16BitTypes = 4,
     };
 
     struct ShaderDefine

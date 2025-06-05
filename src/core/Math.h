@@ -58,6 +58,17 @@ namespace Neb
         return t * Mul;
     }
 
+    struct AABB
+    {
+        AABB() = default;
+
+        AABB(const AABB&) = default;
+        AABB& operator=(const AABB&) = default;
+
+        Vec3 min = Vec3();
+        Vec3 max = Vec3();
+    };
+
 #if 0
     template<typename T> 
     int32_t Signum(T val) { return (T(0) < val) - (val < T(0)); }

@@ -3,12 +3,9 @@
 #include "common/Assert.h"
 #include "common/Log.h"
 #include "nri/imgui/UiContext.h"
+#include "nri/nvidia/NvRtxgiNRC.h"
 #include "nri/ShaderCompiler.h"
 #include "nri/Device.h"
-
-// TODO: Remove this when shader library is implemented.
-// Currently needed to initialize root signature. Shaders are needed for that and we need assets directory
-#include "Nebulae.h"
 
 #include <algorithm>
 
@@ -37,22 +34,13 @@ namespace Neb
             return FALSE;
         }
 
-        if (!m_depthStencilBuffer.Init(m_swapchain.GetWidth(), m_swapchain.GetHeight()))
-        {
-            NEB_LOG_ERROR("Failed to initialize depth-stencil buffer");
-            return FALSE;
-        }
-
         // Init fence
         nri::ThrowIfFailed(nri::NRIDevice::Get().GetD3D12Device()->CreateFence(
-            m_fenceValues[m_frameIndex],
+            m_fenceValues[m_backbufferIndex],
             D3D12_FENCE_FLAG_NONE,
             IID_PPV_ARGS(m_fence.ReleaseAndGetAddressOf())));
 
         InitCommandList();
-        InitRootSignatureAndShaders();
-        InitPipelineState();
-        InitInstanceCb();
 
         m_deferredRenderer.Init(m_swapchain.GetWidth(), m_swapchain.GetHeight(), &m_swapchain);
 
@@ -61,7 +49,7 @@ namespace Neb
             .device = &nri::NRIDevice::Get(),
             .numInflightFrames = NumInflightFrames,
             .renderTargetFormat = m_swapchain.GetFormat(),
-            .depthStencilFormat = m_depthStencilBuffer.GetFormat(),
+            .depthStencilFormat = m_deferredRenderer.GetDepthStencilBuffer().GetFormat(),
         });
 
         return TRUE;
@@ -73,9 +61,10 @@ namespace Neb
         m_scene = scene;
 
         nri::ThrowIfFalse(m_raytracer.Init(&m_swapchain), "Failed to init scene context for ray tracing");
+        InitRtxgiContext(m_swapchain.GetWidth(), m_swapchain.GetHeight(), m_scene);
 
         // use current frame index to submit AS work
-        UINT frameIndex = m_frameIndex;
+        UINT backbufferIndex = m_backbufferIndex;
 
         nri::NRIDevice& device = nri::NRIDevice::Get();
         nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
@@ -88,8 +77,8 @@ namespace Neb
         nri::ThrowIfFalse(m_raytracer.InitSceneContext(commandList, m_scene), "Failed to init scene context for ray tracing");
         nri::ThrowIfFailed(commandList->Close());
 
-        SubmitCommandList(nri::eCommandContextType_Graphics, commandList, m_fence.Get(), m_fenceValues[frameIndex]);
-        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[frameIndex]);
+        SubmitCommandList(nri::eCommandContextType_Graphics, commandList, m_fence.Get(), m_fenceValues[backbufferIndex]);
+        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[backbufferIndex]);
 
         // wait for work to finish
         // TODO: do in parallel, avoid waiting here
@@ -101,55 +90,83 @@ namespace Neb
     {
         NEB_ASSERT(m_scene);
 
-        UINT frameIndex = NextFrame();
+        UINT backbufferIndex = NextFrame();
 
         // Begin frame (including UI frame)
         nri::UiContext::Get()->BeginFrame();
+        m_deferredRenderer.BeginFrame(GetFrameIndex());
+        m_deferredRenderer.SubmitUICommands();
         {
+
+            // Explicitly begin RTXGI frame as a separate queue submit
+            ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex, [this] {
+                nri::NvRtxgiNRCIntegration* rtxgiIntegration = nri::NvRtxgiNRCIntegration::Get();
+                nrc::FrameSettings nrcPerFrameSettings = nrc::FrameSettings();
+                nrcPerFrameSettings.numTrainingIterations = 4;
+                nrcPerFrameSettings.learningRate = 1e-2;
+                // Debugging aid. You can disable the training to 'freeze' the state of the cache.
+                nrcPerFrameSettings.trainTheCache = true;
+                // The training dimensions that were actually written to in the update pass.
+                nrcPerFrameSettings.usedTrainingDimensions = nrc::ComputeIdealTrainingDimensions(rtxgiIntegration->GetContextSettings().frameDimensions, nrcPerFrameSettings.numTrainingIterations);
+
+                // RTXGI should reset command lists manually
+                rtxgiIntegration->BeginFrame(GetCommandList(), nrcPerFrameSettings);
+                rtxgiIntegration->PopulateShaderConstants(&m_deferredRenderer.GetNrcConstants()); // update NrcConstants struct to then be used in constant buffer
+            });
+
             DeferredRenderer::RenderInfo renderInfo = {
                 .scene = m_scene,
-                .commandList = m_commandList.Get(),
-                .frameIndex = frameIndex,
+                .commandList = GetCommandList(),
+                .backbufferIndex = backbufferIndex,
                 .timestep = timestep
             };
 
-            this->ExecuteCommandList(nri::eCommandContextType_Graphics, frameIndex,
+            ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex,
                 [this, &renderInfo]
                 {
                     m_deferredRenderer.SubmitCommandsGbuffer(renderInfo);
                 });
 
-            this->ExecuteCommandList(nri::eCommandContextType_Graphics, frameIndex,
+            ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex,
                 [this, &renderInfo]
                 {
                     m_deferredRenderer.SubmitCommandsPBRLighting(renderInfo);
                 });
 
-            this->ExecuteCommandList(nri::eCommandContextType_Graphics, frameIndex,
+            ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex,
                 [this, &renderInfo]
                 {
-                    m_deferredRenderer.SubmitCommandsHDRTonemapping(m_commandList.Get());
+                    m_deferredRenderer.SubmitCommandsHDRTonemapping(GetCommandList());
+                });
+
+            // Call explicitly at the very end of a frame
+            ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex,
+                [this, backbufferIndex]
+                {
+                    nri::UiContext::Get()->EndFrame();
+                    nri::UiContext::Get()->SubmitCommands(backbufferIndex, GetCommandList(), &m_swapchain);
                 });
         }
-        nri::UiContext::Get()->EndFrame();
-        this->RenderUI(frameIndex); // Call explicitly after ending a frame
+        // Explicitly end RTXGI frame context
+        nri::NvRtxgiNRCIntegration::Get()->EndFrame(nri::NRIDevice::Get().GetCommandQueue(nri::eCommandContextType_Graphics));
+        m_deferredRenderer.EndFrame();
 
         m_swapchain.Present(FALSE);
     }
 
-    void Renderer::RenderUI(UINT frameIndex)
+    void Renderer::RenderUI(UINT backbufferIndex)
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
         nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
         nri::Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
 
         nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
-        nri::UiContext::Get()->SubmitCommands(frameIndex, m_commandList.Get(), &m_swapchain);
+        
         nri::ThrowIfFailed(m_commandList->Close());
 
-        SubmitCommandList(nri::eCommandContextType_Graphics, m_commandList.Get(), m_fence.Get(), m_fenceValues[frameIndex]);
-        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[frameIndex]);
-        ++m_fenceValues[frameIndex]; // Increment fence value before proceding to PBR lighting pass
+        SubmitCommandList(nri::eCommandContextType_Graphics, m_commandList.Get(), m_fence.Get(), m_fenceValues[backbufferIndex]);
+        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[backbufferIndex]);
+        ++m_fenceValues[backbufferIndex]; // Increment fence value before proceding to PBR lighting pass
     }
 
     void Renderer::RenderScene(float timestep)
@@ -161,7 +178,7 @@ namespace Neb
         }
 
         // Move to the next frame;
-        UINT frameIndex = NextFrame();
+        UINT backbufferIndex = NextFrame();
 
         nri::NRIDevice& device = nri::NRIDevice::Get();
         nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
@@ -174,16 +191,15 @@ namespace Neb
             m_deferredRenderer.SubmitCommandsGbuffer(DeferredRenderer::RenderInfo{
                 .scene = m_scene,
                 .commandList = m_commandList.Get(),
-                .frameIndex = frameIndex,
+                .backbufferIndex = backbufferIndex,
                 .timestep = timestep });
-            this->PopulateCommandLists(frameIndex, timestep, m_scene);
             nri::UiContext::Get()->EndFrame();
-            nri::UiContext::Get()->SubmitCommands(frameIndex, m_commandList.Get(), &m_swapchain);
+            nri::UiContext::Get()->SubmitCommands(backbufferIndex, m_commandList.Get(), &m_swapchain);
         }
         nri::ThrowIfFailed(m_commandList->Close());
 
-        SubmitCommandList(nri::eCommandContextType_Graphics, m_commandList.Get(), m_fence.Get(), m_fenceValues[frameIndex]);
-        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[frameIndex]);
+        SubmitCommandList(nri::eCommandContextType_Graphics, m_commandList.Get(), m_fence.Get(), m_fenceValues[backbufferIndex]);
+        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[backbufferIndex]);
 
         m_swapchain.Present(FALSE);
     }
@@ -191,7 +207,7 @@ namespace Neb
     void Renderer::RenderSceneRaytraced(float timestep)
     {
         // Move to the next frame;
-        UINT frameIndex = NextFrame();
+        UINT backbufferIndex = NextFrame();
 
         nri::NRIDevice& device = nri::NRIDevice::Get();
         nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
@@ -202,14 +218,14 @@ namespace Neb
         nri::ThrowIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
         {
             nri::UiContext::Get()->BeginFrame();
-            m_raytracer.PopulateCommandLists(commandList, frameIndex, timestep);
+            m_raytracer.PopulateCommandLists(commandList, backbufferIndex, timestep);
             nri::UiContext::Get()->EndFrame();
-            nri::UiContext::Get()->SubmitCommands(frameIndex, commandList, &m_swapchain);
+            nri::UiContext::Get()->SubmitCommands(backbufferIndex, commandList, &m_swapchain);
         }
         nri::ThrowIfFailed(commandList->Close());
 
-        SubmitCommandList(nri::eCommandContextType_Graphics, commandList, m_fence.Get(), m_fenceValues[frameIndex]);
-        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[frameIndex]);
+        SubmitCommandList(nri::eCommandContextType_Graphics, commandList, m_fence.Get(), m_fenceValues[backbufferIndex]);
+        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[backbufferIndex]);
 
         m_swapchain.Present(FALSE);
     }
@@ -226,100 +242,7 @@ namespace Neb
             // Handle the return result better
             m_swapchain.Resize(width, height);
             m_deferredRenderer.Resize(width, height);
-            m_depthStencilBuffer.Resize(width, height);
             m_raytracer.Resize(width, height); // Finally resize the ray tracing scene
-        }
-    }
-
-    void Renderer::PopulateCommandLists(UINT frameIndex, float timestep, Scene* scene)
-    {
-        NEB_ASSERT(m_commandList && scene, "Invalid populate context");
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-
-        //ImGui::ShowDemoWindow();
-
-        {
-            std::array shaderVisibleHeaps = {
-                device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).GetHeap(),
-                device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER).GetHeap(),
-            };
-            m_commandList->SetDescriptorHeaps(static_cast<UINT>(shaderVisibleHeaps.size()), shaderVisibleHeaps.data());
-
-            ID3D12Resource* backbuffer = m_swapchain.GetCurrentBackbuffer();
-            {
-                std::array barriers = {
-                    CD3DX12_RESOURCE_BARRIER::Transition(backbuffer, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_RENDER_TARGET),
-                    CD3DX12_RESOURCE_BARRIER::Transition(
-                        m_depthStencilBuffer.GetBufferResource(),
-                        D3D12_RESOURCE_STATE_COMMON,
-                        D3D12_RESOURCE_STATE_DEPTH_WRITE),
-                };
-                m_commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
-            }
-
-            static const Neb::Vec4 rtvClearColor = Neb::Vec4(0.0f, 0.0f, 0.0f, 1.0f);
-            D3D12_CPU_DESCRIPTOR_HANDLE rtvDescriptor = m_swapchain.GetCurrentBackbufferRtvHandle();
-            m_commandList->ClearRenderTargetView(rtvDescriptor, &rtvClearColor.x, 0, nullptr);
-
-            const nri::DescriptorHeapAllocation& dsvDescriptor = m_depthStencilBuffer.GetDSV();
-            m_commandList->ClearDepthStencilView(dsvDescriptor.CpuAt(0), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-            m_commandList->OMSetRenderTargets(1, &rtvDescriptor, FALSE, &m_depthStencilBuffer.GetDSV().CpuAddress);
-
-            D3D12_VIEWPORT viewport = CD3DX12_VIEWPORT(0.0f, 0.0f, m_swapchain.GetWidth(), m_swapchain.GetHeight());
-            m_commandList->RSSetViewports(1, &viewport);
-
-            D3D12_RECT scissorRect = CD3DX12_RECT(0, 0, m_swapchain.GetWidth(), m_swapchain.GetHeight());
-            m_commandList->RSSetScissorRects(1, &scissorRect);
-
-            // Setup PSO
-            m_commandList->SetGraphicsRootSignature(m_rootSignature.GetD3D12RootSignature());
-            m_commandList->SetPipelineState(m_pipelineState.Get());
-
-            const Mat4& view = scene->Camera.UpdateLookAt();
-            const float aspectRatio = m_swapchain.GetWidth() / static_cast<float>(m_swapchain.GetHeight());
-            Mat4 projection = Mat4::CreatePerspectiveFieldOfView(ToRadians(60.0f), aspectRatio, 0.1f, 100.0f);
-
-            // Bind instance info once, will be updated later
-            m_commandList->SetGraphicsRootConstantBufferView(eRendererRoots_InstanceInfo, m_cbInstance.GetGpuVirtualAddress(frameIndex));
-
-            for (nri::StaticMesh& staticMesh : scene->StaticMeshes)
-            {
-                CbInstanceInfo cbInstanceInfo = CbInstanceInfo{
-                    .InstanceToWorld = staticMesh.InstanceToWorld,
-                    .ViewProj = view * projection,
-                };
-                std::memcpy(m_cbInstance.GetMapping<CbInstanceInfo>(frameIndex), &cbInstanceInfo, sizeof(CbInstanceInfo));
-
-                const size_t numSubmeshes = staticMesh.Submeshes.size();
-                NEB_ASSERT(numSubmeshes == staticMesh.SubmeshMaterials.size(),
-                    "Static mesh is invalid. It has {} submeshes while only {} materials",
-                    numSubmeshes, staticMesh.SubmeshMaterials.size());
-
-                for (size_t i = 0; i < numSubmeshes; ++i)
-                {
-                    nri::StaticSubmesh& submesh = staticMesh.Submeshes[i];
-                    nri::Material& material = staticMesh.SubmeshMaterials[i];
-
-                    m_commandList->SetGraphicsRootDescriptorTable(eRendererRoots_MaterialTextures, material.SrvRange.GpuAddress);
-
-                    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-                    m_commandList->IASetVertexBuffers(0, nri::eAttributeType_NumTypes, submesh.AttributeViews.data());
-                    m_commandList->IASetIndexBuffer(&submesh.IBView);
-                    m_commandList->DrawIndexedInstanced(submesh.NumIndices, 1, 0, 0, 0);
-                }
-            }
-
-            // Do transition in a separate scope for better readibility
-            {
-                std::array barriers = {
-                    CD3DX12_RESOURCE_BARRIER::Transition(backbuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON),
-                    CD3DX12_RESOURCE_BARRIER::Transition(
-                        m_depthStencilBuffer.GetBufferResource(),
-                        D3D12_RESOURCE_STATE_DEPTH_WRITE,
-                        D3D12_RESOURCE_STATE_COMMON),
-                };
-                m_commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
-            }
         }
     }
 
@@ -341,40 +264,41 @@ namespace Neb
         nri::ThrowIfFailed(m_commandList->Reset(m_currentCmdAllocator.Get(), nullptr));
     }
 
-    void Renderer::EndCommandList(nri::ECommandContextType contextType, UINT frameIndex)
+    void Renderer::EndCommandList(nri::ECommandContextType contextType, UINT backbufferIndex)
     {
         NEB_ASSERT(m_currentCmdAllocator != nullptr, "Current command allocator should be valid!");
         nri::ThrowIfFailed(m_commandList->Close());
         {
-            SubmitCommandList(contextType, m_commandList.Get(), m_fence.Get(), m_fenceValues[frameIndex]);
+            SubmitCommandList(contextType, m_commandList.Get(), m_fence.Get(), m_fenceValues[backbufferIndex]);
         }
-        nri::NRIDevice::Get().GetCommandAllocatorPool(contextType).DiscardAllocator(m_currentCmdAllocator.Get(), m_fence.Get(), m_fenceValues[frameIndex]);
-        ++m_fenceValues[frameIndex]; // Increment fence value before proceding to the next command list submition
+        nri::NRIDevice::Get().GetCommandAllocatorPool(contextType).DiscardAllocator(m_currentCmdAllocator.Get(), m_fence.Get(), m_fenceValues[backbufferIndex]);
+        ++m_fenceValues[backbufferIndex]; // Increment fence value before proceding to the next command list submition
         m_currentCmdAllocator = nullptr; // reset command allocator
     }
 
     UINT Renderer::NextFrame()
     {
-        UINT64 prevFenceValue = m_fenceValues[m_frameIndex];
+        UINT64 prevFenceValue = m_fenceValues[m_backbufferIndex];
 
         // only wait for a new frame's fence value
-        m_frameIndex = m_swapchain.GetCurrentBackbufferIndex();
-        this->WaitForFrame(m_frameIndex);
+        m_backbufferIndex = m_swapchain.GetCurrentBackbufferIndex();
+        this->WaitForFrame(m_backbufferIndex);
 
-        m_fenceValues[m_frameIndex] = prevFenceValue + 1;
-        return m_frameIndex;
+        m_fenceValues[m_backbufferIndex] = prevFenceValue + 1;
+        ++m_frameIndex; // increment frame index each frame
+        return m_backbufferIndex;
     }
 
-    void Renderer::WaitForFrame(UINT frameIndex) const
+    void Renderer::WaitForFrame(UINT backbufferIndex) const
     {
-        UINT64 fenceValue = m_fenceValues[frameIndex];
+        UINT64 fenceValue = m_fenceValues[backbufferIndex];
         this->WaitForFenceValue(fenceValue);
     }
 
     void Renderer::WaitForLastFrame() const
     {
-        NEB_ASSERT(*std::ranges::max_element(m_fenceValues) == m_fenceValues[m_frameIndex], "Fence value we are waiting for needs to be max");
-        this->WaitForFrame(m_frameIndex);
+        NEB_ASSERT(*std::ranges::max_element(m_fenceValues) == m_fenceValues[m_backbufferIndex], "Fence value we are waiting for needs to be max");
+        this->WaitForFrame(m_backbufferIndex);
     }
 
     void Renderer::WaitForFenceValue(UINT64 fenceValue) const
@@ -407,63 +331,24 @@ namespace Neb
         nri::ThrowIfFailed(commandList.As(&m_commandList));
     }
 
-    void Renderer::InitRootSignatureAndShaders()
+    void Renderer::InitRtxgiContext(UINT width, UINT height, Scene* scene)
     {
-        // Shader and root-signature related stuff
-        const std::filesystem::path shaderDir = Nebulae::Get().GetSpecification().AssetsDirectory / "shaders";
-        const std::string shaderFilepath = (shaderDir / "Basic.hlsl").string();
+        nrc::ContextSettings nrcContextSettings = nrc::ContextSettings();
+        nrcContextSettings.learnIrradiance = true;
+        nrcContextSettings.includeDirectLighting = true;
+        nrcContextSettings.frameDimensions = { (uint32_t)width, (uint32_t)height };
 
-        m_vsBasic = nri::ShaderCompiler::Get()->CompileShader(
-            shaderFilepath,
-            nri::ShaderCompilationDesc("VSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Vertex),
-            nri::eShaderCompilationFlag_None);
+        nrcContextSettings.trainingDimensions = nrc::ComputeIdealTrainingDimensions(nrcContextSettings.frameDimensions, 0);
+        nrcContextSettings.maxPathVertices = 8;
+        nrcContextSettings.samplesPerPixel = 1;
+        
+        Vec3 min = scene->SceneBox.min;
+        Vec3 max = scene->SceneBox.max;
+        nrcContextSettings.sceneBoundsMin = { min.x, min.y, min.z };
+        nrcContextSettings.sceneBoundsMax = { max.x, max.y, max.z };
+        nrcContextSettings.smallestResolvableFeatureSize = 0.01f;
 
-        m_psBasic = nri::ShaderCompiler::Get()->CompileShader(
-            shaderFilepath,
-            nri::ShaderCompilationDesc("PSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Pixel),
-            nri::eShaderCompilationFlag_None);
-
-        D3D12_DESCRIPTOR_RANGE1 materialTexturesRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, nri::eMaterialTextureType_NumTypes, 0, 0);
-        m_rootSignature = nri::RootSignature(eRendererRoots_NumRoots, 1)
-                              .AddParamCbv(eRendererRoots_InstanceInfo, 0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_VERTEX)
-                              .AddParamDescriptorTable(eRendererRoots_MaterialTextures, std::array{ materialTexturesRange }, D3D12_SHADER_VISIBILITY_PIXEL)
-                              .AddStaticSampler(0, CD3DX12_STATIC_SAMPLER_DESC(0));
-
-        nri::ThrowIfFalse(m_rootSignature.Init(&nri::NRIDevice::Get(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT));
-    }
-
-    void Renderer::InitPipelineState()
-    {
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.pRootSignature = m_rootSignature.GetD3D12RootSignature();
-        psoDesc.VS = m_vsBasic.GetBinaryBytecode();
-        psoDesc.PS = m_psBasic.GetBinaryBytecode();
-        psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-        psoDesc.RasterizerState.FrontCounterClockwise = TRUE; // glTF 2.0 spec: the winding order triangle faces is CCW
-        psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-        psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-        psoDesc.SampleMask = UINT_MAX;
-        psoDesc.InputLayout = D3D12_INPUT_LAYOUT_DESC{
-            .pInputElementDescs = nri::StaticMeshInputLayout.data(),
-            .NumElements = nri::StaticMeshInputLayout.size(),
-        };
-        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        psoDesc.NumRenderTargets = 1;
-        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-        psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-        psoDesc.SampleDesc = { 1, 0 };
-        psoDesc.NodeMask = 0;
-        psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
-        nri::ThrowIfFailed(device.GetD3D12Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(m_pipelineState.ReleaseAndGetAddressOf())));
-    }
-
-    void Renderer::InitInstanceCb()
-    {
-        nri::ThrowIfFalse(m_cbInstance.Init(nri::ConstantBufferDesc{
-            .NumBuffers = Renderer::NumInflightFrames,
-            .NumBytesPerBuffer = sizeof(CbInstanceInfo) }));
+        nri::NvRtxgiNRCIntegration::Get()->Configure(nrcContextSettings);
     }
 
 } // Neb namespace

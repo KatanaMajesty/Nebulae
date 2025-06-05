@@ -1,3 +1,6 @@
+#ifndef __OCTAHEDRON_ENCODING_H__
+#define __OCTAHEDRON_ENCODING_H__
+
 // From "Survey of Efficient Representations for Independent Unit Vectors" by Williams College, Ubisoft and others
 // https://jcgt.org/published/0003/02/01/ - publishing link
 
@@ -29,3 +32,5 @@ float3 Oct16_FastUnpack(in float2 E)
     
     return normalize(V);
 }
+
+#endif // __OCTAHEDRON_ENCODING_H__
