@@ -2,6 +2,7 @@
 
 #include "common/Assert.h"
 
+#include <array>
 #include <algorithm>
 #include <ranges>
 
@@ -19,7 +20,14 @@ namespace Neb::nri
     RootSignature::RootSignature(UINT numRootParams, UINT numStaticSamplers)
     {
         m_params.resize(numRootParams);
+        // Reserve max possible descriptor ranges amount to avoid resizing, so that root parameters do not get undefined before initializing
         m_samplerDescs.resize(numStaticSamplers);
+    }
+
+    RootSignature& RootSignature::AddParamDescriptorTable(UINT rootParamIndex, const D3D12_DESCRIPTOR_RANGE1& descriptorRange,
+        D3D12_SHADER_VISIBILITY visibility)
+    {
+        return AddParamDescriptorTable(rootParamIndex, std::array{ descriptorRange }, visibility);
     }
 
     RootSignature& RootSignature::AddParamDescriptorTable(UINT rootParamIndex, std::span<const D3D12_DESCRIPTOR_RANGE1> descriptorRanges,
@@ -27,10 +35,13 @@ namespace Neb::nri
     {
         NEB_LOG_WARN_IF(m_params.at(rootParamIndex).has_value(), "Root signature -> param at {} (Descriptor table) was overridden", rootParamIndex);
         m_params.at(rootParamIndex) = CD3DX12_ROOT_PARAMETER1();
-        CD3DX12_ROOT_PARAMETER1& param = m_params.at(rootParamIndex).value();
-        CD3DX12_ROOT_PARAMETER1::InitAsDescriptorTable(param,
-            static_cast<UINT>(descriptorRanges.size()),
-            descriptorRanges.data(), visibility);
+
+        // copy descriptor params into explicitly managed heap for lazy initialization in Init()
+        m_lazyDescriptorRanges.push_back(LazyDescriptorRangeInitializer{
+            .rootParamIndex = rootParamIndex,
+            .range = std::vector(descriptorRanges.begin(), descriptorRanges.end()),
+            .visibility = visibility
+            });
         return *this;
     }
 
@@ -101,6 +112,14 @@ namespace Neb::nri
             params.at(rootIndex) = entry.value();
         }
 
+        // reconstruct all lazy descriptor ranges at initialization time to preserve raw pointers required by D3D
+        for (LazyDescriptorRangeInitializer& lazyRange : m_lazyDescriptorRanges)
+        {
+            CD3DX12_ROOT_PARAMETER1& param = params.at(lazyRange.rootParamIndex);
+            CD3DX12_ROOT_PARAMETER1::InitAsDescriptorTable(param,
+                static_cast<UINT>(lazyRange.range.size()), lazyRange.range.data(), lazyRange.visibility);
+        }
+
         std::vector<D3D12_STATIC_SAMPLER_DESC> samplerDescs(m_samplerDescs.size());
         for (UINT samplerIndex = 0; samplerIndex < m_samplerDescs.size(); ++samplerIndex)
         {
@@ -125,12 +144,19 @@ namespace Neb::nri
         };
 
         nri::D3D12Rc<ID3D10Blob> blob, errorBlob;
-        nri::ThrowIfFailed(D3D12SerializeVersionedRootSignature(&rootSignatureDesc, blob.GetAddressOf(), errorBlob.GetAddressOf()));
+        if(FAILED(D3D12SerializeVersionedRootSignature(&rootSignatureDesc, blob.GetAddressOf(), errorBlob.GetAddressOf())))
+        {
+            NEB_LOG_ERROR("Failed to create root signature -> {}", (const char*)errorBlob->GetBufferPointer());
+            return false;
+        }
         nri::ThrowIfFailed(device->GetD3D12Device()->CreateRootSignature(0,
             blob->GetBufferPointer(),
             blob->GetBufferSize(),
             IID_PPV_ARGS(m_rootSignature.ReleaseAndGetAddressOf())));
 
+        // deallocate space
+        m_lazyDescriptorRanges.clear();
+        m_lazyDescriptorRanges.shrink_to_fit();
         return this->IsValid();
     }
 

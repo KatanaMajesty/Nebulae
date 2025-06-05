@@ -33,4 +33,11 @@ float3 Oct16_FastUnpack(in float2 E)
     return normalize(V);
 }
 
+void UnpackOct16Normals(in float4 encodedN, out float3 GN, out float3 SN)
+{
+    // .xy - geometry normal packed, .zw - surface normal packed
+    GN = Oct16_FastUnpack(encodedN.xy);
+    SN = Oct16_FastUnpack(encodedN.zw);
+}
+
 #endif // __OCTAHEDRON_ENCODING_H__

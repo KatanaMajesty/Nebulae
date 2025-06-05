@@ -41,7 +41,14 @@ namespace Neb::nri
         std::wstring wFilepath = std::wstring(filepath.begin(), filepath.end());
         std::wstring_view wTargetProfile = GetTargetProfile(desc.ShaderModel, Type);
 
-        CompilationResult result = CompileInternal(wFilepath, L"", wTargetProfile, {}, flags);
+        std::vector<DxcDefine> dxcDefines;
+        dxcDefines.reserve(desc.Defines.size());
+        for (const auto& [name, value] : desc.Defines)
+        {
+            dxcDefines.emplace_back(name.data(), value.data());
+        }
+
+        CompilationResult result = CompileInternal(wFilepath, L"", wTargetProfile, dxcDefines, flags);
         return Shader(Type, result.Binary, result.Pdb, result.Reflection);
     }
 

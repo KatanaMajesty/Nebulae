@@ -204,6 +204,26 @@ namespace Neb
         nri::Rc<ID3D12StateObject> m_rtPso;
         nri::Rc<ID3D12StateObjectProperties> m_rtPsoProperties;
         nri::Shader m_rsPathtracer;
+        enum EPathtracerRoots
+        {
+            PATHTRACER_ROOT_NRC_CONSTANTS = 0,
+            PATHTRACER_ROOT_GLOBAL_CONSTANTS,
+            PATHTRACER_ROOT_NRC_QUERY_PATH_INFO,
+            PATHTRACER_ROOT_NRC_TRAINING_INFO,
+            PATHTRACER_ROOT_NRC_TRAINING_PATH_VERTICES,
+            PATHTRACER_ROOT_NRC_QUERY_RADIANCE_PARAMS,
+            PATHTRACER_ROOT_NRC_COUNTERS_DATA,
+            PATHTRACER_ROOT_GBUFFER_TEXTURES,
+            PATHTRACER_ROOT_SCENE_DEPTH,
+            PATHTRACER_ROOT_SCENE_STENCIL,
+            PATHTRACER_ROOT_SCENE_BVH,
+            PATHTRACER_ROOT_BINDLESS_TEXTURES,
+            PATHTRACER_ROOT_BINDLESS_BUFFERS,
+            PATHTRACER_ROOT_INSTANCE_DATA,
+            PATHTRACER_ROOT_GEOMETRY_DATA,
+            PATHTRACER_ROOT_MATERIAL_DATA,
+            PATHTRACER_ROOT_NUM_ROOTS
+        };
         nri::RootSignature m_giGlobalRS;
         nri::RootSignature m_giRayGenRS;
         nri::RootSignature m_giRayClosestHitRS;

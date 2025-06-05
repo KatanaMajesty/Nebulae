@@ -76,7 +76,14 @@ namespace Neb::nri
         {
         }
 
+        inline LibraryCompilationDesc& AddDefine(const ShaderDefine& define)
+        {
+            Defines.push_back(define);
+            return *this;
+        }
+
         EShaderModel ShaderModel = EShaderModel::sm_6_5;
+        std::vector<ShaderDefine> Defines;
     };
 
     class ShaderCompiler

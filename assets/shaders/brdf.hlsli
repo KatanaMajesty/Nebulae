@@ -118,6 +118,30 @@ float DiffusePdf(float NdotL)
     return NdotL * PI_INV;
 }
 
+// converts an RGB triplet to a single 'brightness' number that approximates how the human eye weights red, green and blue light.
+// Ref: ITU-R BT.709-6, Section 3: Signal Format, 'Derivation of luminance signal'
+float Luminance(float3 rgb)
+{
+    return dot(rgb, float3(0.2126f, 0.7152f, 0.0722f));
+}
+
+// Calculates probability of selecting BRDF (specular or diffuse) using the approximate Fresnel term
+float Brdf_GetSpecularProbability(float VdotN, float3 specularF0, float3 albedo)
+{
+    // Evaluate Fresnel term using the shading normal
+    // Note: we use the shading normal instead of the microfacet normal (half-vector) for Fresnel term here. That's suboptimal for rough surfaces at grazing angles, but half-vector is yet unknown at this point
+    float diffuseReflectance = Luminance(albedo);
+
+    // Approximate relative contribution of BRDFs using the Fresnel term (specular == fresnel)
+    float fresnel = saturate(Luminance(Brdf_FresnelSchlick(specularF0, saturate(VdotN))));
+    float specular = fresnel;
+    float diffuse = diffuseReflectance * (1.0f - fresnel); //< If diffuse term is weighted by Fresnel, apply it here as well
+
+    // Return probability of selecting specular BRDF over diffuse BRDF
+    float probability = (specular / max(0.0001f, (specular + diffuse)));
+    return clamp(probability, 0.1f, 0.9f);
+}
+
 // Samples a direction within a hemisphere oriented along +Z axis with a cosine-weighted distribution
 // Source: "Sampling Transformations Zoo" in Ray Tracing Gems by Shirley et al.
 float3 CosineSampleHemisphere(float2 u, out float pdf)
@@ -137,11 +161,4 @@ float3 CosineSampleHemisphere(float2 u)
     float b = PI_TWO * u.y;
     float3 result = float3(a * cos(b), a * sin(b), sqrt(1.0f - u.x));
     return result;
-}
-
-// converts an RGB triplet to a single 'brightness' number that approximates how the human eye weights red, green and blue light.
-// Ref: ITU-R BT.709-6, Section 3: Signal Format, 'Derivation of luminance signal'
-float Luminance(float3 rgb)
-{
-    return dot(rgb, float3(0.2126f, 0.7152f, 0.0722f));
 }

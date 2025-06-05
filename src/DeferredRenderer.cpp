@@ -745,18 +745,35 @@ namespace Neb
 
         NEB_ASSERT(m_rsPathtracer.HasBinary(), "Failed to compile basic RT shader: {}", shaderFilepath.string());
 
-        //nri::NRIDevice& device = nri::NRIDevice::Get();
-        //{
-        //    // Initialize root signatures for RT pathtracer
-        //    D3D12_DESCRIPTOR_RANGE1 tlasSrv = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
-        //    m_giGlobalRS = nri::RootSignature(eGlobalRoot_NumRoots)
-        //                          .AddParamCbv(eGlobalRoot_CbViewInfo, 0)
-        //                          .AddParamCbv(eGlobalRoot_CbWorldInfo, 1)
-        //                          .AddParamDescriptorTable(eGlobalRoot_SrvTlas, std::array{ tlasSrv });
-        //}
-        //
-
-        //nri::ThrowIfFalse(m_basicGlobalRS.Init(&device), "failed to init global rs for rt scene");
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        {
+            // Initialize root signatures for RT pathtracer
+            // clang-format on
+            m_giGlobalRS = nri::RootSignature(PATHTRACER_ROOT_NUM_ROOTS, 1 /*1 static sampler for materials*/);
+            m_giGlobalRS.AddParamCbv(PATHTRACER_ROOT_NRC_CONSTANTS, /*register*/ 0, /*space*/ 0);
+            m_giGlobalRS.AddParamCbv(PATHTRACER_ROOT_GLOBAL_CONSTANTS, /*register*/ 1, /*space*/ 0);
+            // NRC resources
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_QUERY_PATH_INFO,           CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 0, /*space*/ 0));
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_TRAINING_INFO,             CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 1, /*space*/ 0));
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_TRAINING_PATH_VERTICES,    CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 2, /*space*/ 0));
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_QUERY_RADIANCE_PARAMS,     CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 3, /*space*/ 0));
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_COUNTERS_DATA,             CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 4, /*space*/ 0));
+            // Gbuffers/additional scene information
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_GBUFFER_TEXTURES,  CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ GBUFFER_SLOT_NUM_SLOTS, /*register*/ 0, /*space*/ 1));
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_SCENE_DEPTH,       CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 0, /*space*/ 0));
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_SCENE_STENCIL,     CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 1, /*space*/ 0));
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_SCENE_BVH,         CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 2, /*space*/ 0));
+            // bindless
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_BINDLESS_TEXTURES, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ UINT_MAX, /*register*/ 0, /*space*/ 3, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE));
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_BINDLESS_BUFFERS,  CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ UINT_MAX, /*register*/ 0, /*space*/ 4, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE));
+            // mesh/material data for geometry reconstruction during ray tracing
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_INSTANCE_DATA, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 1, /*space*/ 5));
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_GEOMETRY_DATA, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 2, /*space*/ 5));
+            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_MATERIAL_DATA, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 3, /*space*/ 5));
+            m_giGlobalRS.AddStaticSampler(0, CD3DX12_STATIC_SAMPLER_DESC(0));
+            // clang-format on
+        }
+        nri::ThrowIfFalse(m_giGlobalRS.Init(&device), "failed to init global rs for rt scene");
 
         //D3D12_DESCRIPTOR_RANGE1 outputTextureUav = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
         //m_rayGenRS = nri::RootSignature(eRaygenRoot_NumRoots)

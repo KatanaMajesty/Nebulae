@@ -19,6 +19,9 @@ namespace Neb::nri
 
         RootSignature(UINT numRootParams = 0, UINT numStaticSamplers = 0);
 
+        RootSignature& AddParamDescriptorTable(UINT rootParamIndex, const D3D12_DESCRIPTOR_RANGE1& descriptorRange,
+            D3D12_SHADER_VISIBILITY visibility = D3D12_SHADER_VISIBILITY_ALL);
+
         RootSignature& AddParamDescriptorTable(UINT rootParamIndex, std::span<const D3D12_DESCRIPTOR_RANGE1> descriptorRanges,
             D3D12_SHADER_VISIBILITY visibility = D3D12_SHADER_VISIBILITY_ALL);
 
@@ -49,6 +52,13 @@ namespace Neb::nri
         using ParameterEntry = std::optional<CD3DX12_ROOT_PARAMETER1>;
         using StSamplerEntry = std::optional<D3D12_STATIC_SAMPLER_DESC>;
 
+        struct LazyDescriptorRangeInitializer
+        {
+            UINT rootParamIndex;
+            std::vector<D3D12_DESCRIPTOR_RANGE1> range;
+            D3D12_SHADER_VISIBILITY visibility;
+        };
+        std::vector<LazyDescriptorRangeInitializer> m_lazyDescriptorRanges;
         std::vector<ParameterEntry> m_params;
         std::vector<StSamplerEntry> m_samplerDescs;
 
