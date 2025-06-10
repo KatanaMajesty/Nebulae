@@ -54,7 +54,6 @@ namespace Neb
 
     private:
         bool m_isInitialized = false;
-        bool m_isRaytracer = false;
         AppSpec m_appSpec = {};
 
         TimeWatch m_timeWatch;

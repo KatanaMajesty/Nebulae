@@ -13,6 +13,8 @@
 #include "nri/raytracing/RTCommon.h"
 #include "nri/nvidia/NvRtxgiNRC.h"
 #include "nri/GIProcessedScene.h"
+#include "SVGFDenoiser.h"
+#include "input/Keyboard.h"
 
 #include "DXRHelper/nv_helpers_dx12/ShaderBindingTableGenerator.h"
 
@@ -47,6 +49,8 @@ namespace Neb
 
         bool Init(UINT width, UINT height, nri::Swapchain* swapchain);
         void Resize(UINT width, UINT height);
+
+        void OnKeyInteraction(const KeyboardEvent_KeyInteraction& event);
 
         // Frame index is an always incremental ID of the frame, not the swapchain index
         struct RenderInfo
@@ -98,12 +102,22 @@ namespace Neb
 
         UINT m_frameIndex;
 
+        bool m_showUI = true;
         struct SceneSunUI
         {
             float roughDiameter = 0.58f; // Rough estimate of sun diameter as seen from Earth
-            Vec3 direction = Vec3(0.66f, -1.0f, -0.2f);
-            Vec3 radiance = Vec3(2.0f, 1.94f, 1.9f);
+            Vec3 direction = Vec3(0.5f, -1.0f, -0.2f);
+            Vec3 radiance = Vec3(20.0f);
         } m_sceneSunUI;
+
+        static constexpr uint32_t MaxPathtracingRecursionDepth = 8;
+        struct GlobalIlluminationUI
+        {
+            Vec3 skyColor = Vec3(8.0f);
+            int32_t giSamplesPerPixel = 1;
+            int32_t nrcMaxPathVertices = MaxPathtracingRecursionDepth;
+            float throughputThreshold = 0.01f;
+        } m_globalIlluminationUI;
 
         void InitGbuffers();
         void InitGbufferHeaps();
@@ -196,15 +210,6 @@ namespace Neb
         nri::Shader m_psTonemap;
         nri::Rc<ID3D12PipelineState> m_tonemapPipeline;
 
-        static constexpr uint32_t MaxPathtracingRecursionDepth = 8;
-        struct GlobalIlluminationUI
-        {
-            Vec3 skyColor = Vec3(0.58, 0.79f, 0.95f);
-            int32_t giSamplesPerPixel = 1;
-            int32_t nrcMaxPathVertices = MaxPathtracingRecursionDepth;
-            float throughputThreshold = 0.01f;
-        } m_globalIlluminationUI;
-
         // returns true if NRC was re-configured, otherwise false
         bool ConfigureNRCState(const nrc::ContextSettings& nrcContextSettings);
         void InitPathtracerScene(Scene* scene); // scene is specified explicitly to allow for independent re-configurations of heaps
@@ -245,6 +250,7 @@ namespace Neb
         nri::ConstantBuffer m_globalConstantsCB;
 
         nrc::ContextSettings m_nrcContextSettings;
+        nrc::FrameSettings m_nrcFrameSettings;
         nri::Rc<ID3D12StateObject> m_nrcUpdatePSO;
         nri::Rc<ID3D12StateObject> m_nrcQueryPSO;
         nri::Shader m_rsUpdatePathtracer;
@@ -301,6 +307,8 @@ namespace Neb
         nri::RootSignature m_radianceResolveRS;
         nri::Rc<ID3D12PipelineState> m_radianceResolvePSO;
         nri::DescriptorHeapAllocation m_radianceResolveNrcSrvHeap; // 0 - PackedPathInfo, 1 - PackedRadiance
+
+        SVGFDenoiser m_svgfDenoiser;
     };
 
 } // Neb namespace

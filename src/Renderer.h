@@ -31,18 +31,18 @@ namespace Neb
         BOOL Init(HWND hwnd);
         BOOL InitSceneContext(Scene* scene);
 
-        // TODO: WIP here
         void RenderSceneDeferred(float timestep);
-        void RenderUI(UINT frameIndex);
 
-        void RenderScene(float timestep);
-        void RenderSceneRaytraced(float timestep);
+        [[deprecated("not used anymore")]] void RenderScene(float timestep);
+        [[deprecated("not used anymore")]] void RenderSceneRaytraced(float timestep);
         void Resize(UINT width, UINT height);
 
         UINT GetWidth() const { return m_swapchain.GetWidth(); }
         UINT GetHeight() const { return m_swapchain.GetHeight(); }
 
         UINT GetFrameIndex() const { return m_frameIndex; }
+
+        DeferredRenderer* GetDeferredRenderer() { return &m_deferredRenderer; }
 
     private:
         void SubmitCommandList(nri::ECommandContextType contextType, ID3D12CommandList* commandList, ID3D12Fence* fence, UINT fenceValue);
@@ -86,10 +86,6 @@ namespace Neb
 
         // Deferred renderer is scene-agnostic, should be initialized in Init()
         DeferredRenderer m_deferredRenderer;
-
-        // Opposed to deferred renderer RtScene should be initialized in InitSceneContext(), 
-        // as it contains BLAS/TLAS that are dependant on the scene
-        RtScene m_raytracer;
 
         void InitRtxgiContext(UINT width, UINT height, Scene* scene);
     };

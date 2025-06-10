@@ -62,7 +62,7 @@ namespace Neb
         NEB_ASSERT(scene, "Invalid scene!");
         m_scene = scene;
 
-        nri::ThrowIfFalse(m_raytracer.Init(&m_swapchain), "Failed to init scene context for ray tracing");
+        //nri::ThrowIfFalse(m_raytracer.Init(&m_swapchain), "Failed to init scene context for ray tracing");
 
         // use current frame index to submit AS work
         UINT backbufferIndex = m_backbufferIndex;
@@ -75,7 +75,7 @@ namespace Neb
 
         // submit work for building raytracing AS
         nri::ThrowIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
-        nri::ThrowIfFalse(m_raytracer.InitSceneContext(commandList, m_scene), "Failed to init scene context for ray tracing");
+        //nri::ThrowIfFalse(m_raytracer.InitSceneContext(commandList, m_scene), "Failed to init scene context for ray tracing");
         nri::ThrowIfFailed(commandList->Close());
 
         SubmitCommandList(nri::eCommandContextType_Graphics, commandList, m_fence.Get(), m_fenceValues[backbufferIndex]);
@@ -95,75 +95,18 @@ namespace Neb
 
         // Begin frame (including UI frame)
         nri::UiContext::Get()->BeginFrame();
-        m_deferredRenderer.BeginFrame(DeferredRenderer::RenderInfo{
-            .scene = m_scene,
-            .commandList = GetCommandList(),
-            .backbufferIndex = backbufferIndex,
-            .frameIndex = GetFrameIndex(),
-            .timestep = timestep });
-
         m_deferredRenderer.SubmitUICommands();
         {
-
-            // Explicitly begin RTXGI frame as a separate queue submit
-            ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex, [this] {
-                static NrcResolveMode mode = NrcResolveMode::AddQueryResultToOutput;
-                
-
-                static nrc::FrameSettings NrcFrameSettings;
-                // NRC works better when the radiance values it sees internally are in a 'friendly'
-                // range for it.
-                // Applications often have quite different scales for their radiance units, so
-                // we need to be able to scale these units in order to get that nice NRC-friendly range.
-                // This value should broadly correspond to the average radiance that you might see
-                // in one of your bright scenes (e.g. outdoors in daylight).
-                ImGui::DragFloat("Max average radiance", &NrcFrameSettings.maxExpectedAverageRadianceValue, 0.025f, 0.0f, 32.0f);
-                // This will prevent NRC from terminating on mirrors - it continue to the next vertex
-                ImGui::Checkbox("Skip delta vertices", &NrcFrameSettings.skipDeltaVertices);
-                // Knob for the termination heuristic to determine when it terminates the path.
-                // The default value should give good quality.  You can decrease the value to
-                // bias the algorithm to terminating earlier, trading off quality for performance.
-                ImGui::DragFloat("Termination heuristic threshold", &NrcFrameSettings.terminationHeuristicThreshold, 0.01f, 0.0f, 1.0f);
-                
-                ImGui::Combo("Resolve Mode", (int*)&NrcFrameSettings.resolveMode, nrc::GetImGuiResolveModeComboString());
-
-                // Debugging aid. You can disable the training to 'freeze' the state of the cache.
-                ImGui::Checkbox("Train NRC", &NrcFrameSettings.trainTheCache);
-
-                // Proportion of unbiased paths that we should do self-training on
-                float proportionUnbiasedToSelfTrain = 1.0f;
-                ImGui::DragFloat("Proportion unbiased (self-train)", &NrcFrameSettings.proportionUnbiasedToSelfTrain, 0.01f, 0.0f, 1.0f);
-
-                // Proportion of training paths that should be 'unbiased'
-                float proportionUnbiased = 0.0625f;
-                ImGui::DragFloat("Proportion unbiased", &NrcFrameSettings.proportionUnbiased, 0.01f, 0.0f, 1.0f);
-
-                // Allows the radiance from self-training to be attenuated or completely disabled
-                // to help debugging.
-                // If there's an error in the path tracer that breaks energy conservation for example,
-                // the self training feedback can sometimes lead to the cache getting brighter
-                // and brighter. This control can help debug such issues.
-                float selfTrainingAttenuation = 1.0f;
-                ImGui::DragFloat("Self-train attenuation", &NrcFrameSettings.selfTrainingAttenuation, 0.025f, 0.0f, 1.0f);
-
-                // This controls how many training iterations are performed each frame,
-                // which in turn determines the ideal number of training records that
-                // the training/update path tracing pass is expected to generate.
-                // Each training batch contains 16K training records derived from path segments
-                // in the the NRC update path tracing pass.
-                // `ComputeIdealTrainingDimensions` to set a lower resolution in
-                // `FrameSettings::usedTrainingDimensions` (and your training/update dispatch).
-                ImGui::SliderInt("Training iterations", (int*)&NrcFrameSettings.numTrainingIterations, 1, 32);
-                ImGui::DragFloat("LR", &NrcFrameSettings.proportionUnbiased, 0.001f, 0.0f, 0.1f);
-
-
-                nri::NvRtxgiNRCIntegration* rtxgiIntegration = nri::NvRtxgiNRCIntegration::Get();
-                NrcFrameSettings.usedTrainingDimensions = nrc::ComputeIdealTrainingDimensions(rtxgiIntegration->GetContextSettings().frameDimensions, NrcFrameSettings.numTrainingIterations);
-
-                // RTXGI should reset command lists manually
-                rtxgiIntegration->BeginFrame(GetCommandList(), NrcFrameSettings);
-                rtxgiIntegration->PopulateShaderConstants(&m_deferredRenderer.GetNrcConstants()); // update NrcConstants struct to then be used in constant buffer
-            });
+            ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex,
+                [this, backbufferIndex, timestep]
+                {
+                    m_deferredRenderer.BeginFrame(DeferredRenderer::RenderInfo{
+                        .scene = m_scene,
+                        .commandList = GetCommandList(),
+                        .backbufferIndex = backbufferIndex,
+                        .frameIndex = GetFrameIndex(),
+                        .timestep = timestep });
+                });
 
             ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex,
                 [this]
@@ -177,7 +120,7 @@ namespace Neb
                     m_deferredRenderer.SubmitCommandsPBRLighting();
                 });
 
-            UINT pathtracingFenceValue = ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex,
+            ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex,
                 [this]
                 {
                     m_deferredRenderer.SubmitCommandsGIPathtrace();
@@ -196,36 +139,10 @@ namespace Neb
                     nri::UiContext::Get()->EndFrame();
                     nri::UiContext::Get()->SubmitCommands(backbufferIndex, GetCommandList(), &m_swapchain);
                 });
-
-            WaitForFenceValue(pathtracingFenceValue);
-            /*ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex,
-                [this]
-                {
-                    float trainingLoss;
-                    nri::NvRtxgiNRCIntegration::Get()->QueryAndTrain(GetCommandList(), &trainingLoss);
-                    NEB_LOG_INFO("NRC training loss is {}", trainingLoss);
-                });*/
         }
-        // Explicitly end RTXGI frame context
-        nri::NvRtxgiNRCIntegration::Get()->EndFrame(nri::NRIDevice::Get().GetCommandQueue(nri::eCommandContextType_Graphics));
         m_deferredRenderer.EndFrame();
 
         m_swapchain.Present(FALSE);
-    }
-
-    void Renderer::RenderUI(UINT backbufferIndex)
-    {
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-        nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
-        nri::Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
-
-        nri::ThrowIfFailed(m_commandList->Reset(commandAllocator.Get(), nullptr));
-        
-        nri::ThrowIfFailed(m_commandList->Close());
-
-        SubmitCommandList(nri::eCommandContextType_Graphics, m_commandList.Get(), m_fence.Get(), m_fenceValues[backbufferIndex]);
-        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[backbufferIndex]);
-        ++m_fenceValues[backbufferIndex]; // Increment fence value before proceding to PBR lighting pass
     }
 
     void Renderer::RenderScene(float timestep)
@@ -265,28 +182,28 @@ namespace Neb
 
     void Renderer::RenderSceneRaytraced(float timestep)
     {
-        // Move to the next frame;
-        UINT backbufferIndex = NextFrame();
+        //// Move to the next frame;
+        //UINT backbufferIndex = NextFrame();
 
-        nri::NRIDevice& device = nri::NRIDevice::Get();
-        nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
-        nri::Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
+        //nri::NRIDevice& device = nri::NRIDevice::Get();
+        //nri::CommandAllocatorPool& commandAllocatorPool = device.GetCommandAllocatorPool(nri::eCommandContextType_Graphics);
+        //nri::Rc<ID3D12CommandAllocator> commandAllocator = commandAllocatorPool.QueryAllocator();
 
-        ID3D12GraphicsCommandList4* commandList = m_commandList.Get();
+        //ID3D12GraphicsCommandList4* commandList = m_commandList.Get();
 
-        nri::ThrowIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
-        {
-            nri::UiContext::Get()->BeginFrame();
-            m_raytracer.PopulateCommandLists(commandList, backbufferIndex, timestep);
-            nri::UiContext::Get()->EndFrame();
-            nri::UiContext::Get()->SubmitCommands(backbufferIndex, commandList, &m_swapchain);
-        }
-        nri::ThrowIfFailed(commandList->Close());
+        //nri::ThrowIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
+        //{
+        //    nri::UiContext::Get()->BeginFrame();
+        //    m_raytracer.PopulateCommandLists(commandList, backbufferIndex, timestep);
+        //    nri::UiContext::Get()->EndFrame();
+        //    nri::UiContext::Get()->SubmitCommands(backbufferIndex, commandList, &m_swapchain);
+        //}
+        //nri::ThrowIfFailed(commandList->Close());
 
-        SubmitCommandList(nri::eCommandContextType_Graphics, commandList, m_fence.Get(), m_fenceValues[backbufferIndex]);
-        commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[backbufferIndex]);
+        //SubmitCommandList(nri::eCommandContextType_Graphics, commandList, m_fence.Get(), m_fenceValues[backbufferIndex]);
+        //commandAllocatorPool.DiscardAllocator(commandAllocator, m_fence.Get(), m_fenceValues[backbufferIndex]);
 
-        m_swapchain.Present(FALSE);
+        //m_swapchain.Present(FALSE);
     }
 
     void Renderer::Resize(UINT width, UINT height)
@@ -301,7 +218,7 @@ namespace Neb
             // Handle the return result better
             m_swapchain.Resize(width, height);
             m_deferredRenderer.Resize(width, height);
-            m_raytracer.Resize(width, height); // Finally resize the ray tracing scene
+            //m_raytracer.Resize(width, height); // Finally resize the ray tracing scene
         }
     }
 

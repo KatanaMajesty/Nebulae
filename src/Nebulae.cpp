@@ -49,6 +49,7 @@ namespace Neb
         {
             keyboard.RegisterCallback<Neb::KeyboardEvent_KeyInteraction>(&Neb::Nebulae::OnKeyInteraction, this);
             keyboard.RegisterCallback<Neb::KeyboardEvent_KeyInteraction>(&Neb::Scene::OnKeyboardInteract, scene);
+            keyboard.RegisterCallback<Neb::KeyboardEvent_KeyInteraction>(&Neb::DeferredRenderer::OnKeyInteraction, m_renderer->GetDeferredRenderer());
         }
 
         if (!m_renderer->InitSceneContext(scene))
@@ -88,11 +89,7 @@ namespace Neb
 
         secondsSinceLastFps += timestep;
 
-        #if 1
-        (m_isRaytracer ? m_renderer->RenderSceneRaytraced(timestep) : m_renderer->RenderSceneDeferred(timestep));
-        #else
-        (m_isRaytracer ? m_renderer->RenderSceneRaytraced(timestep) : m_renderer->RenderScene(timestep));
-        #endif
+        m_renderer->RenderSceneDeferred(timestep);
     }
 
     void Nebulae::Resize(UINT width, UINT height)
@@ -110,7 +107,6 @@ namespace Neb
             case eKeycode_Esc: 
                 nri::ThrowIfFalse(DestroyWindow(m_appSpec.Handle), "Could not properly destroy window on escape!"); 
                 break;
-            case eKeycode_F1: m_isRaytracer = !m_isRaytracer; break;
             }
         }
     }

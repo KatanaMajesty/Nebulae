@@ -96,6 +96,8 @@ target_sources(DXRNebulae PRIVATE
     "src/Nebulae.h"
     "src/Raytracer.cpp"
     "src/Raytracer.h"
+    "src/SVGFDenoiser.cpp"
+    "src/SVGFDenoiser.h"
     "src/Renderer.cpp"
     "src/Renderer.h"
     "src/Win.h"

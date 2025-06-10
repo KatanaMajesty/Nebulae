@@ -319,7 +319,7 @@ int32_t main(int argc, char* argv[])
         WS_OVERLAPPEDWINDOW, // Window style
 
         // Size and position
-        CW_USEDEFAULT, CW_USEDEFAULT, 1280, 720,
+        CW_USEDEFAULT, CW_USEDEFAULT, 1920, 1080,
         //CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
 
         NULL,      // Parent window

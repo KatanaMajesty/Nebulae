@@ -8,6 +8,7 @@
 #include "nri/ShaderCompiler.h"
 #include "nri/imgui/UiContext.h"
 #include "util/Memory.h"
+#include "input/InputManager.h"
 
 #include "DXRHelper/nv_helpers_dx12/RaytracingPipelineGenerator.h"
 
@@ -51,6 +52,8 @@ namespace Neb
         InitPathtracerNRCQueryDebugResources(width, height);
 
         InitRadianceResolveShadersAndPSO();
+
+        nri::ThrowIfFalse(m_svgfDenoiser.Init(width, height));
         return true;
     }
 
@@ -78,6 +81,14 @@ namespace Neb
             InitRadianceResolveShadersAndPSO();
             InitRadianceResolveCreateResourcesAndDescriptors();
         }
+
+        nri::ThrowIfFalse(m_svgfDenoiser.Resize(width, height));
+    }
+
+    void DeferredRenderer::OnKeyInteraction(const KeyboardEvent_KeyInteraction& event)
+    {
+        if (event.Keycode == eKeycode_F1 && event.NextState == eKeycodeState_Pressed)
+            m_showUI = !m_showUI;
     }
 
     void DeferredRenderer::BeginFrame(const RenderInfo& info)
@@ -96,7 +107,7 @@ namespace Neb
         nrc::ContextSettings nrcContextSettings = nrc::ContextSettings();
         nrcContextSettings.learnIrradiance = true;
         nrcContextSettings.includeDirectLighting = false;
-        nrcContextSettings.requestReset = ImGui::Button("Reset NRC");
+        nrcContextSettings.requestReset = false;
         nrcContextSettings.frameDimensions = { m_width, m_height };
 
         nrcContextSettings.trainingDimensions = nrc::ComputeIdealTrainingDimensions(nrcContextSettings.frameDimensions, 4);
@@ -113,18 +124,101 @@ namespace Neb
             InitPathtracerDescriptors();
             InitRadianceResolveCreateResourcesAndDescriptors();
         }
+
+        // RTXGI NRC
+        {
+            nri::NvRtxgiNRCIntegration::Get()->BeginFrame(info.commandList, m_nrcFrameSettings);
+            nri::NvRtxgiNRCIntegration::Get()->PopulateShaderConstants(&GetNrcConstants()); // update NrcConstants struct to then be used in constant buffer
+        }
     }
 
     void DeferredRenderer::EndFrame()
     {
+        // Explicitly end RTXGI frame context
+        nri::NvRtxgiNRCIntegration::Get()->EndFrame(nri::NRIDevice::Get().GetCommandQueue(nri::eCommandContextType_Graphics));
     }
 
     void DeferredRenderer::SubmitUICommands()
     {
+        if (!m_showUI)
+            return;
+        
         ImGui::Begin("Sun settings");
         ImGui::SliderFloat("Sun diameter", &m_sceneSunUI.roughDiameter, 0.0f, 8.0f);
         ImGui::DragFloat3("Sun direction", &m_sceneSunUI.direction.x, 0.02f, -1.0f, 1.0f);
         ImGui::SliderFloat3("Sun radiance", &m_sceneSunUI.radiance.x, 0.0f, 32.0f);
+        ImGui::End();
+
+        ImGui::Begin("GI & Pathtracing");
+        {
+            if (ImGui::Button("Reload GI shaders"))
+            {
+                InitPathtracerShadersAndRootSignatures();
+                InitPathtracerPipeline();
+                InitPathtracerSBT();
+            }
+
+            ImGui::SliderInt("Samples per pixel", &m_globalIlluminationUI.giSamplesPerPixel, 1, 16);
+            ImGui::SliderInt("Max path vertices", &m_globalIlluminationUI.nrcMaxPathVertices, 1, 32);
+            ImGui::SliderFloat3("Sky color", &m_globalIlluminationUI.skyColor.x, 0.0f, 8.0f);
+            ImGui::SliderFloat("Throughput threshold", &m_globalIlluminationUI.throughputThreshold, 0.0f, 1.0f);
+        }
+        ImGui::End();
+
+        ImGui::Begin("Neural radiance cache (RTXGI)");
+        {
+            // NRC works better when the radiance values it sees internally are in a 'friendly'
+            // range for it.
+            // Applications often have quite different scales for their radiance units, so
+            // we need to be able to scale these units in order to get that nice NRC-friendly range.
+            // This value should broadly correspond to the average radiance that you might see
+            // in one of your bright scenes (e.g. outdoors in daylight).
+            ImGui::DragFloat("Max average radiance", &m_nrcFrameSettings.maxExpectedAverageRadianceValue, 0.025f, 0.0f, 32.0f);
+            // This will prevent NRC from terminating on mirrors - it continue to the next vertex
+            ImGui::Checkbox("Skip delta vertices", &m_nrcFrameSettings.skipDeltaVertices);
+            // Knob for the termination heuristic to determine when it terminates the path.
+            // The default value should give good quality.  You can decrease the value to
+            // bias the algorithm to terminating earlier, trading off quality for performance.
+            ImGui::DragFloat("Termination heuristic threshold", &m_nrcFrameSettings.terminationHeuristicThreshold, 0.01f, 0.0f, 1.0f);
+
+            ImGui::Combo("Resolve Mode", (int*)&m_nrcFrameSettings.resolveMode, nrc::GetImGuiResolveModeComboString());
+
+            // Debugging aid. You can disable the training to 'freeze' the state of the cache.
+            ImGui::Checkbox("Train NRC", &m_nrcFrameSettings.trainTheCache);
+
+            // Proportion of unbiased paths that we should do self-training on
+            float proportionUnbiasedToSelfTrain = 1.0f;
+            ImGui::DragFloat("Proportion unbiased (self-train)", &m_nrcFrameSettings.proportionUnbiasedToSelfTrain, 0.01f, 0.0f, 1.0f);
+
+            // Proportion of training paths that should be 'unbiased'
+            float proportionUnbiased = 0.0625f;
+            ImGui::DragFloat("Proportion unbiased", &m_nrcFrameSettings.proportionUnbiased, 0.01f, 0.0f, 1.0f);
+
+            // Allows the radiance from self-training to be attenuated or completely disabled
+            // to help debugging.
+            // If there's an error in the path tracer that breaks energy conservation for example,
+            // the self training feedback can sometimes lead to the cache getting brighter
+            // and brighter. This control can help debug such issues.
+            float selfTrainingAttenuation = 1.0f;
+            ImGui::DragFloat("Self-train attenuation", &m_nrcFrameSettings.selfTrainingAttenuation, 0.025f, 0.0f, 1.0f);
+
+            // This controls how many training iterations are performed each frame,
+            // which in turn determines the ideal number of training records that
+            // the training/update path tracing pass is expected to generate.
+            // Each training batch contains 16K training records derived from path segments
+            // in the the NRC update path tracing pass.
+            // `ComputeIdealTrainingDimensions` to set a lower resolution in
+            // `FrameSettings::usedTrainingDimensions` (and your training/update dispatch).
+            ImGui::SliderInt("Training iterations", (int*)&m_nrcFrameSettings.numTrainingIterations, 1, 32);
+            ImGui::DragFloat("LR", &m_nrcFrameSettings.learningRate, 0.001f, 0.0f, 0.1f);
+
+            if (ImGui::Button("Reset NRC"))
+            {
+                nrc::ContextSettings settings = m_nrcContextSettings;
+                settings.requestReset = true;
+                ConfigureNRCState(settings);
+            }
+        }
         ImGui::End();
     }
 
@@ -279,18 +373,6 @@ namespace Neb
         const RenderInfo& info = m_renderInfo;
         NEB_ASSERT(info.scene, "Scene cannot be null");
         NEB_ASSERT(info.commandList, "Command list cannot be null");
-
-        if (ImGui::Button("Reload GI shaders"))
-        {
-            InitPathtracerShadersAndRootSignatures();
-            InitPathtracerPipeline();
-            InitPathtracerSBT();
-        }
-
-        ImGui::SliderInt("Samples per pixel", &m_globalIlluminationUI.giSamplesPerPixel, 1, 16);
-        ImGui::SliderInt("Max path vertices", &m_globalIlluminationUI.nrcMaxPathVertices, 1, 32);
-        ImGui::SliderFloat3("Sky color", &m_globalIlluminationUI.skyColor.x, 0.0f, 8.0f);
-        ImGui::SliderFloat("Throughput threshold", &m_globalIlluminationUI.throughputThreshold, 0.0f, 1.0f);
 
         // Update CB data
         {
@@ -1350,6 +1432,5 @@ namespace Neb
         }
         
     }
-
 
 } // Neb namespace
