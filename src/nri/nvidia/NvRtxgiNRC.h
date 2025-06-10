@@ -37,7 +37,7 @@ namespace Neb::nri
         // optionally returns a training loss that is a normalized float and is specified as pTrainingLoss
         void QueryAndTrain(Rc<ID3D12GraphicsCommandList4> commandList, float* pTrainingLoss);
         // modulates radiance results queried from training and adds it to the outputResource, which should represent a 'final image'
-        void Resolve(Rc<ID3D12GraphicsCommandList4> commandList, Rc<ID3D12Resource> outputResource);
+        void Resolve(Rc<ID3D12GraphicsCommandList4> commandList, ID3D12Resource* outputResource);
 
         // Populate NrcConstants(shader constants structure).
         // NrcConstants should be put into a constant buffer and passed to NRC_InitializeNRCParameters* in your shaders.
@@ -47,17 +47,19 @@ namespace Neb::nri
         size_t GetMemoryFootprint() const;
 
         const nrc::ContextSettings& GetContextSettings() const { return m_contextSettings; }
-
-    private:
-        nrc::d3d12::Context* m_nrcContext = nullptr;
-        nrc::ContextSettings m_contextSettings;
-
+        
         struct NRCBuffer
         {
             Rc<ID3D12Resource> resource;
             nrc::AllocationInfo info = {};
             size_t allocationSizeInBytes = 0;
         };
+        const NRCBuffer& GetNRCBuffer(nrc::BufferIdx index) const { return m_nrcBuffers.at(EnumValue(index)); }
+
+    private:
+        nrc::d3d12::Context* m_nrcContext = nullptr;
+        nrc::ContextSettings m_contextSettings;
+
         std::array<NRCBuffer, EnumValue(nrc::BufferIdx::Count)> m_nrcBuffers;
     };
 } // Neb::nri namespace

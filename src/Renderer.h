@@ -48,17 +48,18 @@ namespace Neb
         void SubmitCommandList(nri::ECommandContextType contextType, ID3D12CommandList* commandList, ID3D12Fence* fence, UINT fenceValue);
 
         void BeginCommandList(nri::ECommandContextType contextType);
-        void EndCommandList(nri::ECommandContextType contextType, UINT frameIndex); // also updates fence value
+        UINT EndCommandList(nri::ECommandContextType contextType, UINT frameIndex); // also updates fence value
 
         // Helper command that accepts a functor to be invoked as a part of command list scope
+        // returns a waitable fence value that can be passed to WaitForFenceValue() call
         template<typename Func, typename... Args>
-        void ExecuteCommandList(nri::ECommandContextType contextType, UINT frameIndex, Func f, Args&&... args)
+        UINT ExecuteCommandList(nri::ECommandContextType contextType, UINT frameIndex, Func f, Args&&... args)
         {
             BeginCommandList(contextType);
             {
                 std::invoke(f, std::forward<Args>(args)...);
             }
-            EndCommandList(contextType, frameIndex);
+            return EndCommandList(contextType, frameIndex);
         }
 
         ID3D12GraphicsCommandList4* GetCommandList() const { return m_commandList.Get(); }

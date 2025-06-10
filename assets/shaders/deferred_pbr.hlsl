@@ -110,7 +110,6 @@ void CSMain(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID)
     }
 
     float3 Lo = O * LdotN * cbLightEnvironment.radiance * visibility;
-    
-    const float3 ambient = float3(0.02, 0.02, 0.2) * albedo;
-    HDROutput[tid.xy] = float4(ambient + Lo, 1.0); // TODO: Add support of alpha from albedo gbuffer (??)
+    //HDROutput[tid.xy] = float4((float3(0.07, 0.1, 0.3) * albedo) + Lo, 1.0); // TODO: Add support of alpha from albedo gbuffer (??)
+    HDROutput[tid.xy] = float4(Lo, 1.0); // TODO: Add support of alpha from albedo gbuffer (??)
 }

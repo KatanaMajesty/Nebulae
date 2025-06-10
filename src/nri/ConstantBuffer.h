@@ -4,6 +4,7 @@
 #include "stdafx.h"
 #include "D3D12MA/D3D12MemAlloc.h"
 #include "DescriptorHeapAllocation.h"
+#include "util/Memory.h"
 
 namespace Neb::nri
 {
@@ -29,6 +30,19 @@ namespace Neb::nri
 
         const DescriptorHeapAllocation& GetDescriptorAllocation() const { return m_descriptorAllocation; }
         D3D12_CPU_DESCRIPTOR_HANDLE GetCBVHandle(SIZE_T bufferIndex) const { return m_descriptorAllocation.CpuAt(bufferIndex); }
+
+        template<typename T>
+        void Upload(SIZE_T bufferIndex, const T& t)
+        {
+            NEB_ASSERT(AlignUp(sizeof(T), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT) == m_desc.NumBytesPerBuffer);
+            std::memcpy(GetMapping<T>(bufferIndex), &t, sizeof(T));
+        }
+
+        template<typename... Args>
+        void SetName(std::format_string<Args...> name, Args&&... args)
+        {
+            NEB_SET_HANDLE_NAME(m_bufferAllocation->GetResource(), name, args...);
+        }
 
     private:
         ConstantBufferDesc m_desc = {};

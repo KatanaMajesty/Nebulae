@@ -70,6 +70,8 @@ target_sources(DXRNebulae PRIVATE
     "src/nri/DescriptorHeapAllocation.h"
     "src/nri/Device.cpp"
     "src/nri/Device.h"
+    "src/nri/GIProcessedScene.cpp"
+    "src/nri/GIProcessedScene.h"
     "src/nri/Material.h"
     "src/nri/RootSignature.cpp"
     "src/nri/RootSignature.h"
@@ -82,6 +84,7 @@ target_sources(DXRNebulae PRIVATE
     "src/nri/Swapchain.cpp"
     "src/nri/Swapchain.h"
 
+    "src/util/File.h"
     "src/util/Memory.h"
     "src/util/ScopedPointer.h"
     "src/util/Types.h"
@@ -185,16 +188,15 @@ target_link_libraries(DXRNebulae
     "NRC_D3D12"
 )
 
-# Copy DLLs to the out path
 # We need dxil.dll here to sign shaders compiled by DXC. Without signing them D3D12 runtime would fail
 list(APPEND NEBULAE_DLL_LIST ${CMAKE_CURRENT_SOURCE_DIR}/vendor/dxcompiler.dll)
 list(APPEND NEBULAE_DLL_LIST ${CMAKE_CURRENT_SOURCE_DIR}/vendor/dxil.dll)
 list(APPEND NEBULAE_DLL_LIST ${NV_GFSDK_AFTERMATH_LIBRARY_DIR}/GFSDK_Aftermath_Lib.x64.dll)
 # For RTXGI NRC
 list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/cudart64_12.dll)
-list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/NRC_D3D12.dll)
 list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/nvrtc-builtins64_125.dll)
 list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/nvrtc64_120_0.dll)
+list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/NRC_D3D12.dll)
 # Join the list elements with a space separator
 string(REPLACE ";" " " my_list_str "${NEBULAE_DLL_LIST}")
 

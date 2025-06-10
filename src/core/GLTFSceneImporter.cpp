@@ -144,6 +144,8 @@ namespace Neb
             if (src.image.empty())
                 continue;
 
+            src.name = src.name.empty() ? std::format("gltf_image_{}", i) : src.name;
+
             // Information for upload resource
             D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
             UINT numRows = 0;
@@ -175,7 +177,8 @@ namespace Neb
                     &footprint,
                     &numRows, &numBytesInRow, &numTotalBytes);
             }
-
+            NEB_SET_HANDLE_NAME(m_GLTFTextures[i], "GLTFSceneImporter: Image '{}'", src.name);
+            
             // Upload desc
             nri::D3D12Rc<ID3D12Resource> uploadBuffer;
             {
@@ -210,6 +213,7 @@ namespace Neb
                     std::memcpy(copyTo, copyFrom, numBytesToCopy);
                 }
             }
+            NEB_SET_HANDLE_NAME(uploadBuffer, "GLTFSceneImporter: Upload buffer for image '{}'", src.name);
 
             // Finally, submit copy work from upload buffer to destination texture
             D3D12_TEXTURE_COPY_LOCATION dstLocation = CD3DX12_TEXTURE_COPY_LOCATION(m_GLTFTextures[i].Get(), 0);
@@ -232,6 +236,7 @@ namespace Neb
         for (size_t i = 0; i < numBuffers; ++i)
         {
             tinygltf::Buffer& src = m_GLTFModel.buffers[i];
+            src.name = src.name.empty() ? std::format("gltf_buffer_{}", i) : src.name;
 
             SIZE_T numBytes = src.data.size();
 
@@ -251,10 +256,8 @@ namespace Neb
                     D3D12_RESOURCE_STATE_COMMON, // No need to use copy dest state. Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
                     nullptr, allocation.GetAddressOf(),
                     IID_PPV_ARGS(m_GLTFBuffers[i].GetAddressOf())));
-
-                // hack to convert from string to wstring using <filesystem>. Not sure if that ok to do
-                m_GLTFBuffers[i]->SetName(std::filesystem::path(src.name).wstring().c_str());
             }
+            NEB_SET_HANDLE_NAME(m_GLTFBuffers[i], "GLTFSceneImporter: Buffer '{}'", src.name);
 
             nri::D3D12Rc<ID3D12Resource> uploadBuffer;
             {
@@ -279,6 +282,7 @@ namespace Neb
                 std::memcpy(data, src.data.data(), numBytes);
                 uploadBuffer->Unmap(0, nullptr);
             }
+            NEB_SET_HANDLE_NAME(uploadBuffer, "GLTFSceneImporter: Upload buffer for buffer '{}'", src.name);
 
             m_stagingCommandList->CopyBufferRegion(m_GLTFBuffers[i].Get(), 0, uploadBuffer.Get(), 0, numBytes);
         }
@@ -325,7 +329,7 @@ namespace Neb
         allocatorPool.DiscardAllocator(allocator, m_copyFence.Get(), m_copyFenceValue);
         return true;
     }
-
+    //problem is here with that we reprocess tangents for everything
     bool GLTFSceneImporter::SubmitTangentPostprocessingD3D12Buffer()
     {
         static constexpr size_t TangentStride = sizeof(Vec4);
@@ -365,6 +369,7 @@ namespace Neb
                 nullptr, allocation.GetAddressOf(),
                 IID_PPV_ARGS(tangentBuffer.GetAddressOf())));
         }
+        NEB_SET_HANDLE_NAME(tangentBuffer, "GLTFSceneImporter: Buffer '{}'", std::format("gltf_tangent_buffer"));
 
         nri::D3D12Rc<ID3D12Resource> uploadBuffer;
         {
@@ -402,6 +407,7 @@ namespace Neb
                         size_t numBytes = submesh.Attributes[nri::eAttributeType_Tangents].size();
                         std::memcpy(data + currentOffsetInBytes, submesh.Attributes[nri::eAttributeType_Tangents].data(), numBytes);
 
+                        submesh.AttributeOffsets[nri::eAttributeType_Tangents] = currentOffsetInBytes;
                         submesh.AttributeBuffers[nri::eAttributeType_Tangents] = tangentBuffer;
                         submesh.AttributeViews[nri::eAttributeType_Tangents] = D3D12_VERTEX_BUFFER_VIEW{
                             .BufferLocation = tangentBuffer->GetGPUVirtualAddress() + currentOffsetInBytes,
@@ -412,6 +418,7 @@ namespace Neb
                         currentOffsetInBytes += numBytes;
                     }
         }
+        NEB_SET_HANDLE_NAME(uploadBuffer, "GLTFSceneImporter: Upload buffer for '{}'", std::format("gltf_tangent_buffer"));
 
         m_stagingCommandList->CopyBufferRegion(tangentBuffer.Get(), 0, uploadBuffer.Get(), 0, numTotalBytes);
         return true;
@@ -442,15 +449,15 @@ namespace Neb
         {
             nri::StaticMesh& staticMesh = scene->StaticMeshes.emplace_back();
 
+            // Get instance-to-world transformation before importing static mesh to calculate scene AABB correctly
+            staticMesh.InstanceToWorld = GetTransformationMatrix(node);
+
             tinygltf::Mesh& mesh = m_GLTFModel.meshes[node.mesh];
             if (!ImportStaticMesh(staticMesh, mesh, &scene->SceneBox))
             {
                 NEB_LOG_ERROR("GLTFSceneImporter::ImportScene -> Failed to import static mesh \"{}\"... Returning!", mesh.name);
                 return false;
             }
-
-            // finally, get transformation of the mesh
-            staticMesh.InstanceToWorld = GetTransformationMatrix(node);
         }
         else
         {
@@ -514,15 +521,19 @@ namespace Neb
                     NEB_ASSERT(!accessor.maxValues.empty(), "No 'maxValue' in accessor {}", accessor.name);                    
                     NEB_ASSERT(accessor.minValues.size() == 3 && accessor.maxValues.size() == 3, "only vec3");
 
-                    Vec3 min = Vec3();
-                    min.x = float(accessor.minValues[0]);
-                    min.y = float(accessor.minValues[1]);
-                    min.z = float(accessor.minValues[2]);
+                    Vec4 min4 = Vec4::Transform(Vec4(
+                                                    float(accessor.minValues[0]),
+                                                    float(accessor.minValues[1]),
+                                                    float(accessor.minValues[2]), 1.0f),
+                        mesh.InstanceToWorld);
+                    Vec3 min = Vec3(min4.x, min4.y, min4.z);
 
-                    Vec3 max = Vec3();
-                    max.x = float(accessor.maxValues[0]);
-                    max.y = float(accessor.maxValues[1]);
-                    max.z = float(accessor.maxValues[2]);
+                    Vec4 max4 = Vec4::Transform(Vec4(
+                                                    float(accessor.maxValues[0]),
+                                                    float(accessor.maxValues[1]),
+                                                    float(accessor.maxValues[2]), 1.0f),
+                        mesh.InstanceToWorld);
+                    Vec3 max = Vec3(max4.x, max4.y, max4.z);
 
                     sceneAABB.min = Vec3::Min(sceneAABB.min, min);
                     sceneAABB.max = Vec3::Max(sceneAABB.max, max);
@@ -543,6 +554,11 @@ namespace Neb
                     submesh.Attributes[type].data(),
                     bytes.data.data() + bufferView.byteOffset + accessor.byteOffset,
                     bufferView.byteLength - accessor.byteOffset);
+
+                if (type == nri::eAttributeType_Tangents)
+                {
+                    auto x= 0; x =x;
+                }
 
                 // Store stride of an attribute as well (in bytes)
                 const UINT stride = UINT(accessor.ByteStride(bufferView));         // may become uint_max
@@ -625,6 +641,7 @@ namespace Neb
                 Vec2* texCoords = reinterpret_cast<Vec2*>(submesh.Attributes[nri::eAttributeType_TexCoords].data());
 
                 // Resize the target array of tangents
+                submesh.AttributeOffsets[nri::eAttributeType_Tangents] = 0;
                 submesh.AttributeStrides[nri::eAttributeType_Tangents] = sizeof(Vec4);
                 submesh.Attributes[nri::eAttributeType_Tangents].resize(sizeof(Vec4) * submesh.NumVertices);
                 Vec4* tangents = reinterpret_cast<Vec4*>(submesh.Attributes[nri::eAttributeType_Tangents].data());
@@ -808,7 +825,7 @@ namespace Neb
 
         D3D12_CPU_DESCRIPTOR_HANDLE handle = heapAllocation.CpuAt(type);
         // https://microsoft.github.io/DirectX-Specs/d3d/ResourceBinding.html#null-descriptors
-        // passing NULL for the resource pointer in the descriptor definition achieves the effect of an “unbound” resource.
+        // passing NULL for the resource pointer in the descriptor definition achieves the effect of an 'unbound' resource.
         nri::NRIDevice& device = nri::NRIDevice::Get();
         device.GetD3D12Device()->CreateShaderResourceView(resource, (resource) ? nullptr : &NullDescriptorSrvDesc, handle);
     }

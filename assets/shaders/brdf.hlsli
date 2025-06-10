@@ -134,11 +134,11 @@ float Brdf_GetSpecularProbability(float VdotN, float3 specularF0, float3 albedo)
 
     // Approximate relative contribution of BRDFs using the Fresnel term (specular == fresnel)
     float fresnel = saturate(Luminance(Brdf_FresnelSchlick(specularF0, saturate(VdotN))));
-    float specular = fresnel;
     float diffuse = diffuseReflectance * (1.0f - fresnel); //< If diffuse term is weighted by Fresnel, apply it here as well
 
     // Return probability of selecting specular BRDF over diffuse BRDF
-    float probability = (specular / max(0.0001f, (specular + diffuse)));
+    float probability = (diffuse / max(0.0001f, (fresnel + diffuse)));
+    //return probability;
     return clamp(probability, 0.1f, 0.9f);
 }
 
@@ -161,4 +161,25 @@ float3 CosineSampleHemisphere(float2 u)
     float b = PI_TWO * u.y;
     float3 result = float3(a * cos(b), a * sin(b), sqrt(1.0f - u.x));
     return result;
+}
+
+float3 CosineSampleHemisphereSurfaceAligned(float2 u, float3 SN, out float pdf)
+{
+    // Sample hemisphere oriented along +Z axis
+    float a = sqrt(u.x);
+    float b = PI_TWO * u.y;
+    float3 zWi = float3(a * cos(b), a * sin(b), sqrt(1.0f - u.x));
+    pdf = zWi.z * PI_INV;
+
+    // Create tangent-to-world basis
+    float3 up = abs(SN.z) < 0.999 ? float3(0, 0, 1) : float3(1, 0, 0);
+    float3 tangentX = normalize(cross(up, SN));
+    float3 tangentY = cross(SN, tangentX);
+
+    // Transform from tangent space (+Z aligned) to world space
+    float3 worldDir = zWi.x * tangentX
+                    + zWi.y * tangentY
+                    + zWi.z * SN;
+
+    return normalize(worldDir);
 }

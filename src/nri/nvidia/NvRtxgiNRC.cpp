@@ -33,7 +33,7 @@ namespace Neb::nri
         case nrc::LogLevel::Warning: NEB_LOG_WARN("[RTXGI-Nrc] -> {}", message); break;
         case nrc::LogLevel::Error:
             NEB_LOG_ERROR("[RTXGI-Nrc] -> {}", message);
-            NEB_ASSERT(false, message);
+            NEB_ASSERT(false);
             break;
         default: NEB_ASSERT(false); break;
         }
@@ -144,12 +144,12 @@ namespace Neb::nri
 
     void NvRtxgiNRCIntegration::QueryAndTrain(Rc<ID3D12GraphicsCommandList4> commandList, float* pTrainingLoss)
     {
-        CHECK_NRC_STATUS(m_nrcContext->QueryAndTrain(commandList.Get(), pTrainingLoss), "Failed to query and train NRC (NRC QueryAndTrain call failed)");
+        CHECK_NRC_STATUS(m_nrcContext->QueryAndTrain(commandList.Get(), nullptr), "Failed to query and train NRC (NRC QueryAndTrain call failed)");
     }
 
-    void NvRtxgiNRCIntegration::Resolve(Rc<ID3D12GraphicsCommandList4> commandList, Rc<ID3D12Resource> outputResource)
+    void NvRtxgiNRCIntegration::Resolve(Rc<ID3D12GraphicsCommandList4> commandList, ID3D12Resource* outputResource)
     {
-        CHECK_NRC_STATUS(m_nrcContext->Resolve(commandList.Get(), outputResource.Get()), "Failed to resolve predicted radiance into outputResource");
+        CHECK_NRC_STATUS(m_nrcContext->Resolve(commandList.Get(), outputResource), "Failed to resolve predicted radiance into outputResource");
     }
 
     void NvRtxgiNRCIntegration::PopulateShaderConstants(NrcConstants* pOutConstants) const

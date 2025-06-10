@@ -12,6 +12,9 @@
 #include "nri/raytracing/RTAccelerationStructureBuilder.h"
 #include "nri/raytracing/RTCommon.h"
 #include "nri/nvidia/NvRtxgiNRC.h"
+#include "nri/GIProcessedScene.h"
+
+#include "DXRHelper/nv_helpers_dx12/ShaderBindingTableGenerator.h"
 
 namespace Neb
 {
@@ -42,16 +45,19 @@ namespace Neb
     public:
         DeferredRenderer() = default;
 
-        struct InitDesc
-        {
-            nri::Swapchain* swapchain = nullptr;
-        };
-        
         bool Init(UINT width, UINT height, nri::Swapchain* swapchain);
         void Resize(UINT width, UINT height);
 
         // Frame index is an always incremental ID of the frame, not the swapchain index
-        void BeginFrame(UINT frameIndex);
+        struct RenderInfo
+        {
+            Scene* scene;
+            ID3D12GraphicsCommandList4* commandList;
+            UINT backbufferIndex;
+            UINT frameIndex;
+            float timestep;
+        };
+        void BeginFrame(const RenderInfo& info);
         void EndFrame();
 
         ID3D12Resource* GetGbufferAlbedo() const { return m_gbufferAlbedo->GetResource(); }
@@ -65,17 +71,9 @@ namespace Neb
         ID3D12Resource* GetHDROutputResource() const { return m_hdrResult->GetResource(); }
 
         void SubmitUICommands();
-
-        // Performs deferred rendering into a swapchain provided in InitDesc
-        struct RenderInfo
-        {
-            Scene* scene;
-            ID3D12GraphicsCommandList4* commandList;
-            UINT backbufferIndex;
-            float timestep;
-        };
-        void SubmitCommandsGbuffer(const RenderInfo& info);
-        void SubmitCommandsPBRLighting(const RenderInfo& info);
+        void SubmitCommandsGbuffer();
+        void SubmitCommandsPBRLighting();
+        void SubmitCommandsGIPathtrace();
         void SubmitCommandsHDRTonemapping(ID3D12GraphicsCommandList4* commandList);
 
         void TransitionGbuffers(ID3D12GraphicsCommandList4* commandList,
@@ -90,12 +88,13 @@ namespace Neb
         NrcConstants& GetNrcConstants() { return m_nrcConstants; }
         const NrcConstants& GetNrcConstants() const { return m_nrcConstants; }
 
-        Scene* GetCurrentScene() const { return m_rtScene; }
+        Scene* GetCurrentScene() const { return m_scene; }
 
     private:
         UINT m_width = 0;
         UINT m_height = 0;
         nri::Swapchain* m_swapchain = nullptr;
+        RenderInfo m_renderInfo = RenderInfo();
 
         UINT m_frameIndex;
 
@@ -173,15 +172,16 @@ namespace Neb
         nri::Rc<ID3D12PipelineState> m_pbrPipeline;
 
         // These ones are a bit special as they are called inside command submition lazily
-        void InitRTAccelerationStructures(ID3D12GraphicsCommandList4* commandList, Scene* scene);
+        void InitRTAccelerationStructures(ID3D12GraphicsCommandList4* commandList);
 
         // Ray-tracing objects for inline ray queries during PBR lighting
         //      usage may expand soon
-        Scene* m_rtScene = nullptr;
+        Scene* m_scene = nullptr;
         nri::RTAccelerationStructureBuilder m_asBuilder;
         nri::RTBlasBuffers m_blas;
         nri::RTTlasBuffers m_tlas;
         nri::DescriptorHeapAllocation m_tlasSrvHeap;
+        bool m_needsASUpdate = false;
 
         void InitHDRTonemapShadersAndRootSignature();
         void InitHDRTonemapPipeline(DXGI_FORMAT outputFormat);
@@ -196,30 +196,63 @@ namespace Neb
         nri::Shader m_psTonemap;
         nri::Rc<ID3D12PipelineState> m_tonemapPipeline;
 
-        void InitPathtracerShadersAndRootSignature();
+        static constexpr uint32_t MaxPathtracingRecursionDepth = 8;
+        struct GlobalIlluminationUI
+        {
+            Vec3 skyColor = Vec3(0.58, 0.79f, 0.95f);
+            int32_t giSamplesPerPixel = 1;
+            int32_t nrcMaxPathVertices = MaxPathtracingRecursionDepth;
+            float throughputThreshold = 0.01f;
+        } m_globalIlluminationUI;
+
+        // returns true if NRC was re-configured, otherwise false
+        bool ConfigureNRCState(const nrc::ContextSettings& nrcContextSettings);
+        void InitPathtracerScene(Scene* scene); // scene is specified explicitly to allow for independent re-configurations of heaps
+        void InitPathtracerDescriptors();
+        void InitPathtracerShadersAndRootSignatures();
         void InitPathtracerPipeline();
-        void InitPathtracerBindlessDescriptors(Scene* scene); // scene is specified explicitly to allow for independent re-configurations of heaps
+        void InitPathtracerSBT();
+        void InitPathtracerConstantBuffers();
+        void InitPathtracerNRCQueryDebugResources(UINT width, UINT height);
+
+        CONSTANT_BUFFER_STRUCT GlobalConstants
+        {
+            uint32_t frameIndex;
+            uint32_t samplesPerPixel;
+            Vec2 nrcTrainingDownscale;
+            uint32_t nrcMaxPathVertices;
+            Vec3 cameraWorldPos;
+            Vec3 skyColor;
+            Vec3 sunLightDirection;
+            Vec3 sunLightRadiance;
+            float throughputThreshold;
+        };
+
+        nri::GIProcessedScene m_giScene;
+        nri::DescriptorHeapAllocation m_nrcBufferUavHeap;
 
         NrcConstants m_nrcConstants;
-        nri::Rc<ID3D12StateObject> m_rtPso;
-        nri::Rc<ID3D12StateObjectProperties> m_rtPsoProperties;
-        nri::Shader m_rsPathtracer;
+        GlobalConstants m_globalConstants;
+        nri::ConstantBuffer m_nrcConstantsCB;
+        nri::ConstantBuffer m_globalConstantsCB;
+
+        nrc::ContextSettings m_nrcContextSettings;
+        nri::Rc<ID3D12StateObject> m_nrcUpdatePSO;
+        nri::Rc<ID3D12StateObject> m_nrcQueryPSO;
+        nri::Shader m_rsUpdatePathtracer;
+        nri::Shader m_rsQueryPathtracer;
         enum EPathtracerRoots
         {
             PATHTRACER_ROOT_NRC_CONSTANTS = 0,
             PATHTRACER_ROOT_GLOBAL_CONSTANTS,
-            PATHTRACER_ROOT_NRC_QUERY_PATH_INFO,
-            PATHTRACER_ROOT_NRC_TRAINING_INFO,
-            PATHTRACER_ROOT_NRC_TRAINING_PATH_VERTICES,
-            PATHTRACER_ROOT_NRC_QUERY_RADIANCE_PARAMS,
-            PATHTRACER_ROOT_NRC_COUNTERS_DATA,
+            PATHTRACER_ROOT_NRC_BUFFERS,
+            PATHTRACER_ROOT_NRC_NEBULAE_BUFFERS,
             PATHTRACER_ROOT_GBUFFER_TEXTURES,
             PATHTRACER_ROOT_SCENE_DEPTH,
             PATHTRACER_ROOT_SCENE_STENCIL,
             PATHTRACER_ROOT_SCENE_BVH,
             PATHTRACER_ROOT_BINDLESS_TEXTURES,
             PATHTRACER_ROOT_BINDLESS_BUFFERS,
-            PATHTRACER_ROOT_INSTANCE_DATA,
             PATHTRACER_ROOT_GEOMETRY_DATA,
             PATHTRACER_ROOT_MATERIAL_DATA,
             PATHTRACER_ROOT_NUM_ROOTS
@@ -228,11 +261,38 @@ namespace Neb
         nri::RootSignature m_giRayGenRS;
         nri::RootSignature m_giRayClosestHitRS;
         nri::RootSignature m_giRayMissRS;
-        // FYI -> This technically relies on mesh/vertices layout inside BLAS builders
-        // if changing/sorting/optimizing meshlets/vertices you would also need to align here with it, so that
-        // during RT shader execution GeometryIndex() and PrimitiveIndex() function calls were fine
-        nri::DescriptorHeapAllocation m_bindlessTextures;
-        nri::DescriptorHeapAllocation m_bindlessBuffers;
+        
+        nv_helpers_dx12::ShaderBindingTableGenerator m_rsUpdateSBTGenerator;
+        nv_helpers_dx12::ShaderBindingTableGenerator m_rsQuerySBTGenerator;
+        nri::Rc<ID3D12Resource> m_rsUpdateSBTBuffer;
+        nri::Rc<ID3D12Resource> m_rsQuerySBTBuffer;
+
+        enum ENRCNebulaeDebugBuffers
+        {
+            NRC_NEB_DEBUG_BUFFER_QUERY_THROUGHPUT_MAP = 0,
+            NRC_NEB_DEBUG_BUFFER_QUERY_HIT_MAP,
+            NRC_NEB_DEBUG_BUFFER_NUM_BUFFERS
+        };
+        nri::Rc<ID3D12Resource> m_NRCDebugQueryThroughputMap;
+        nri::Rc<ID3D12Resource> m_NRCDebugQueryHitMap;
+        nri::DescriptorHeapAllocation m_NRCDebugBuffersHeap;
+
+        // this cannot be called before NvRtxgiNRC integration context was initialized
+        void InitRadianceResolveShadersAndPSO();
+        void InitRadianceResolveCreateResourcesAndDescriptors();
+
+        enum ERadianceResolveRoots
+        {
+            RADIANCE_RESOLVE_ROOT_NRC_CONSTANTS = 0,
+            RADIANCE_RESOLVE_ROOT_SCREEN_CONSTANTS,
+            RADIANCE_RESOLVE_ROOT_NRC_BUFFERS,
+            RADIANCE_RESOLVE_ROOT_HDR_OUTPUT,
+            RADIANCE_RESOLVE_ROOT_NUM_ROOTS,
+        };
+        nri::Shader m_csRadianceResolve;
+        nri::RootSignature m_radianceResolveRS;
+        nri::Rc<ID3D12PipelineState> m_radianceResolvePSO;
+        nri::DescriptorHeapAllocation m_radianceResolveNrcSrvHeap; // 0 - PackedPathInfo, 1 - PackedRadiance
     };
 
 } // Neb namespace

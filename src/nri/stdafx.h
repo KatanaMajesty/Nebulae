@@ -6,13 +6,14 @@
 #include <stdexcept>
 #include <string_view>
 #include <format>
+#include <filesystem>
 
 #include <wrl/client.h>
 #include <dxgi1_6.h>
 #include <d3d12.h>
 #include <d3dx12.h>
 
-#define NEB_SET_HANDLE_NAME(t, str, ...) t->SetName(std::format(L##str, __VA_ARGS__).c_str())
+#define NEB_SET_HANDLE_NAME(t, str, ...) t->SetName(std::filesystem::path(std::format(str, __VA_ARGS__)).wstring().c_str())
 
 #define CONSTANT_BUFFER_STRUCT struct alignas(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT)
 

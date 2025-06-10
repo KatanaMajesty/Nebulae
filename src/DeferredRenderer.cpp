@@ -1,13 +1,22 @@
 #include "DeferredRenderer.h"
 
 #include "Nebulae.h" // TODO: Needed for assets directory, should be removed
+#include "common/Log.h"
 #include "core/Math.h"
 #include "nri/Device.h"
 #include "nri/DescriptorHeap.h"
 #include "nri/ShaderCompiler.h"
 #include "nri/imgui/UiContext.h"
+#include "util/Memory.h"
+
+#include "DXRHelper/nv_helpers_dx12/RaytracingPipelineGenerator.h"
 
 #include <format>
+#include <array>
+#include <vector>
+
+// Helper to compute aligned buffer sizes
+#define ROUND_UP(v, powerOf2Alignment) (((v) + (powerOf2Alignment)-1) & ~((powerOf2Alignment)-1))
 
 namespace Neb
 {
@@ -35,8 +44,13 @@ namespace Neb
         InitHDRTonemapShadersAndRootSignature();
         InitHDRTonemapPipeline(m_swapchain->GetFormat());
 
-        InitPathtracerShadersAndRootSignature();
+        InitPathtracerShadersAndRootSignatures();
+        InitPathtracerPipeline();
+        InitPathtracerSBT();
+        InitPathtracerConstantBuffers();
+        InitPathtracerNRCQueryDebugResources(width, height);
 
+        InitRadianceResolveShadersAndPSO();
         return true;
     }
 
@@ -56,11 +70,49 @@ namespace Neb
 
         InitPBRResources();
         InitPBRDescriptorHeaps();
+
+        InitPathtracerNRCQueryDebugResources(width, height);
+
+        if (nri::NvRtxgiNRCIntegration::Get()->IsInitialised())
+        {
+            InitRadianceResolveShadersAndPSO();
+            InitRadianceResolveCreateResourcesAndDescriptors();
+        }
     }
 
-    void DeferredRenderer::BeginFrame(UINT frameIndex)
+    void DeferredRenderer::BeginFrame(const RenderInfo& info)
     {
-        m_frameIndex = frameIndex;
+        m_frameIndex = info.frameIndex;
+        m_renderInfo = info;
+
+        if (m_scene != info.scene)
+        {
+            // scene update
+            m_scene = info.scene;
+            m_needsASUpdate = true;
+            InitPathtracerScene(info.scene);
+        }
+
+        nrc::ContextSettings nrcContextSettings = nrc::ContextSettings();
+        nrcContextSettings.learnIrradiance = true;
+        nrcContextSettings.includeDirectLighting = false;
+        nrcContextSettings.requestReset = ImGui::Button("Reset NRC");
+        nrcContextSettings.frameDimensions = { m_width, m_height };
+
+        nrcContextSettings.trainingDimensions = nrc::ComputeIdealTrainingDimensions(nrcContextSettings.frameDimensions, 0);
+        nrcContextSettings.maxPathVertices = m_globalIlluminationUI.nrcMaxPathVertices;
+        nrcContextSettings.samplesPerPixel = m_globalIlluminationUI.giSamplesPerPixel;
+
+        Vec3 min = info.scene->SceneBox.min;
+        Vec3 max = info.scene->SceneBox.max;
+        nrcContextSettings.sceneBoundsMin = { min.x, min.y, min.z };
+        nrcContextSettings.sceneBoundsMax = { max.x, max.y, max.z };
+        nrcContextSettings.smallestResolvableFeatureSize = 0.01f;
+        if (ConfigureNRCState(nrcContextSettings))
+        {
+            InitPathtracerDescriptors();
+            InitRadianceResolveCreateResourcesAndDescriptors();
+        }
     }
 
     void DeferredRenderer::EndFrame()
@@ -76,8 +128,9 @@ namespace Neb
         ImGui::End();
     }
 
-    void DeferredRenderer::SubmitCommandsGbuffer(const RenderInfo& info)
+    void DeferredRenderer::SubmitCommandsGbuffer()
     {
+        const RenderInfo& info = m_renderInfo;
         NEB_ASSERT(info.scene, "Scene cannot be null");
         NEB_ASSERT(info.commandList, "Command list cannot be null");
 
@@ -149,8 +202,9 @@ namespace Neb
         }
     }
 
-    void DeferredRenderer::SubmitCommandsPBRLighting(const RenderInfo& info)
+    void DeferredRenderer::SubmitCommandsPBRLighting()
     {
+        const RenderInfo& info = m_renderInfo;
         NEB_ASSERT(info.scene, "Scene cannot be null");
         NEB_ASSERT(info.commandList, "Command list cannot be null");
 
@@ -160,8 +214,8 @@ namespace Neb
 
         ID3D12GraphicsCommandList4* commandList = info.commandList;
         {
-            // First things first - update TLAS!
-            InitRTAccelerationStructures(commandList, info.scene);
+            // Check for AS update, and if needed - update
+            InitRTAccelerationStructures(commandList);
 
             SetupDescriptorHeaps(commandList);
             SetupViewports(commandList);
@@ -217,6 +271,209 @@ namespace Neb
                 auto pbrBarrier = CD3DX12_RESOURCE_BARRIER::Transition(resultBuffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
                 commandList->ResourceBarrier(1, &pbrBarrier);
             }
+        }
+    }
+
+    void DeferredRenderer::SubmitCommandsGIPathtrace()
+    {
+        const RenderInfo& info = m_renderInfo;
+        NEB_ASSERT(info.scene, "Scene cannot be null");
+        NEB_ASSERT(info.commandList, "Command list cannot be null");
+
+        if (ImGui::Button("Reload GI shaders"))
+        {
+            InitPathtracerShadersAndRootSignatures();
+            InitPathtracerPipeline();
+            InitPathtracerSBT();
+        }
+
+        ImGui::SliderInt("Samples per pixel", &m_globalIlluminationUI.giSamplesPerPixel, 1, 16);
+        ImGui::SliderInt("Max path vertices", &m_globalIlluminationUI.nrcMaxPathVertices, 1, 32);
+        ImGui::SliderFloat3("Sky color", &m_globalIlluminationUI.skyColor.x, 0.0f, 8.0f);
+        ImGui::SliderFloat("Throughput threshold", &m_globalIlluminationUI.throughputThreshold, 0.0f, 1.0f);
+
+        // Update CB data
+        {
+            // Nrc shader constants are updated in Renderer.cpp
+            // TODO: maybe change that? Have NRC context here only?
+            m_scene->Camera.UpdateLookAt();
+            m_nrcConstantsCB.Upload(info.backbufferIndex, this->GetNrcConstants());
+            m_globalConstantsCB.Upload(info.backbufferIndex, GlobalConstants{
+                                                                 .frameIndex = info.frameIndex,
+                                                                 .samplesPerPixel = uint32_t(m_globalIlluminationUI.giSamplesPerPixel),
+                                                                 .nrcTrainingDownscale = Vec2(
+                                                                     m_nrcConstants.frameDimensions.x / float(m_nrcConstants.trainingDimensions.x),
+                                                                     m_nrcConstants.frameDimensions.y / float(m_nrcConstants.trainingDimensions.y)),
+                                                                 .nrcMaxPathVertices = uint32_t(m_globalIlluminationUI.nrcMaxPathVertices),
+                                                                 .cameraWorldPos = GetCurrentScene()->Camera.GetEyePos(),
+                                                                 .skyColor = m_globalIlluminationUI.skyColor,
+                                                                 .sunLightDirection = m_sceneSunUI.direction,
+                                                                 .sunLightRadiance = m_sceneSunUI.radiance,
+                                                                 .throughputThreshold = m_globalIlluminationUI.throughputThreshold
+                                                             });
+        }
+        
+        ID3D12GraphicsCommandList4* commandList = info.commandList;
+
+        std::vector<D3D12_RESOURCE_BARRIER> bindlessBarriers;
+        for (nri::Rc<ID3D12Resource> resource : m_giScene.GetBindlessBuffers().resources)
+        {
+            bindlessBarriers.push_back(CD3DX12_RESOURCE_BARRIER::Transition(resource.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+        }
+        commandList->ResourceBarrier(UINT(bindlessBarriers.size()), bindlessBarriers.data());
+
+        // NRC QUERY PASS
+        {
+            nri::NRIDevice& device = nri::NRIDevice::Get();
+            UINT width = m_nrcConstants.frameDimensions.x;
+            UINT height = m_nrcConstants.frameDimensions.x;
+            {
+                SetupDescriptorHeaps(commandList);
+
+                commandList->SetPipelineState1(m_nrcQueryPSO.Get());
+                commandList->SetComputeRootSignature(m_giGlobalRS.GetD3D12RootSignature());
+                {
+                    commandList->SetComputeRootConstantBufferView(PATHTRACER_ROOT_NRC_CONSTANTS, m_nrcConstantsCB.GetGpuVirtualAddress(info.backbufferIndex));
+                    commandList->SetComputeRootConstantBufferView(PATHTRACER_ROOT_GLOBAL_CONSTANTS, m_globalConstantsCB.GetGpuVirtualAddress(info.backbufferIndex));
+
+                    //// for these I need to add UAV creation in NvRtxgiNRC.cpp
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_NRC_BUFFERS, m_nrcBufferUavHeap.GpuAddress);
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_NRC_NEBULAE_BUFFERS, m_NRCDebugBuffersHeap.GpuAddress);
+
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_GBUFFER_TEXTURES, m_gbufferSrvHeap.GpuAddress);
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_SCENE_DEPTH, m_depthStencilSrvHeap.GpuAt(0));
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_SCENE_STENCIL, m_depthStencilSrvHeap.GpuAt(1));
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_SCENE_BVH, m_tlasSrvHeap.GpuAddress);
+
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_BINDLESS_TEXTURES, m_giScene.GetBindlessTextureHeap().GpuAddress);
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_BINDLESS_BUFFERS, m_giScene.GetBindlessBufferHeap().GpuAddress);
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_GEOMETRY_DATA, m_giScene.GetGeometryDataHeap().GpuAddress);
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_MATERIAL_DATA, m_giScene.GetMaterialDataHeap().GpuAddress);
+                }
+
+                // Setup the raytracing task
+                D3D12_DISPATCH_RAYS_DESC desc = {};
+                // The ray generation shaders are always at the beginning of the SBT.
+                // important to do in order to align with currentTableOffset
+                uint32_t currentTableOffset = 0;
+                D3D12_GPU_VIRTUAL_ADDRESS sbtAddress = m_rsQuerySBTBuffer->GetGPUVirtualAddress();
+                desc.RayGenerationShaderRecord.StartAddress = sbtAddress;
+                desc.RayGenerationShaderRecord.SizeInBytes = m_rsQuerySBTGenerator.GetRayGenSectionSize();
+                currentTableOffset += ROUND_UP(desc.RayGenerationShaderRecord.SizeInBytes, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+
+                desc.MissShaderTable.StartAddress = ROUND_UP(sbtAddress + currentTableOffset, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+                desc.MissShaderTable.StrideInBytes = m_rsQuerySBTGenerator.GetMissEntrySize();
+                desc.MissShaderTable.SizeInBytes = m_rsQuerySBTGenerator.GetMissSectionSize();
+                currentTableOffset += ROUND_UP(desc.MissShaderTable.SizeInBytes, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+
+                desc.HitGroupTable.StartAddress = ROUND_UP(sbtAddress + currentTableOffset, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+                desc.HitGroupTable.StrideInBytes = m_rsQuerySBTGenerator.GetHitGroupEntrySize();
+                desc.HitGroupTable.SizeInBytes = m_rsQuerySBTGenerator.GetHitGroupSectionSize();
+                currentTableOffset += ROUND_UP(desc.HitGroupTable.SizeInBytes, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+
+                desc.Width = width;
+                desc.Height = height;
+                desc.Depth = 1;
+
+                commandList->DispatchRays(&desc);
+            }
+        }
+
+        // NRC UPDATE PASS
+        {
+            nri::NRIDevice& device = nri::NRIDevice::Get();
+            UINT width = m_nrcConstants.trainingDimensions.x;
+            UINT height = m_nrcConstants.trainingDimensions.y;
+            {
+                SetupDescriptorHeaps(commandList);
+
+                commandList->SetPipelineState1(m_nrcUpdatePSO.Get());
+                commandList->SetComputeRootSignature(m_giGlobalRS.GetD3D12RootSignature());
+                {
+                    commandList->SetComputeRootConstantBufferView(PATHTRACER_ROOT_NRC_CONSTANTS, m_nrcConstantsCB.GetGpuVirtualAddress(info.backbufferIndex));
+                    commandList->SetComputeRootConstantBufferView(PATHTRACER_ROOT_GLOBAL_CONSTANTS, m_globalConstantsCB.GetGpuVirtualAddress(info.backbufferIndex));
+
+                    //// for these I need to add UAV creation in NvRtxgiNRC.cpp
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_NRC_BUFFERS, m_nrcBufferUavHeap.GpuAddress);
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_NRC_NEBULAE_BUFFERS, m_NRCDebugBuffersHeap.GpuAddress);
+
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_GBUFFER_TEXTURES, m_gbufferSrvHeap.GpuAddress);
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_SCENE_DEPTH, m_depthStencilSrvHeap.GpuAt(0));
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_SCENE_STENCIL, m_depthStencilSrvHeap.GpuAt(1));
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_SCENE_BVH, m_tlasSrvHeap.GpuAddress);
+
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_BINDLESS_TEXTURES, m_giScene.GetBindlessTextureHeap().GpuAddress);
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_BINDLESS_BUFFERS, m_giScene.GetBindlessBufferHeap().GpuAddress);
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_GEOMETRY_DATA, m_giScene.GetGeometryDataHeap().GpuAddress);
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_MATERIAL_DATA, m_giScene.GetMaterialDataHeap().GpuAddress);
+                }
+
+                // Setup the raytracing task
+                D3D12_DISPATCH_RAYS_DESC desc = {};
+                // The ray generation shaders are always at the beginning of the SBT.
+                // important to do in order to align with currentTableOffset
+                uint32_t currentTableOffset = 0;
+                D3D12_GPU_VIRTUAL_ADDRESS sbtAddress = m_rsUpdateSBTBuffer->GetGPUVirtualAddress();
+                desc.RayGenerationShaderRecord.StartAddress = sbtAddress;
+                desc.RayGenerationShaderRecord.SizeInBytes = m_rsUpdateSBTGenerator.GetRayGenSectionSize();
+                currentTableOffset += ROUND_UP(desc.RayGenerationShaderRecord.SizeInBytes, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+
+                desc.MissShaderTable.StartAddress = ROUND_UP(sbtAddress + currentTableOffset, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+                desc.MissShaderTable.StrideInBytes = m_rsUpdateSBTGenerator.GetMissEntrySize();
+                desc.MissShaderTable.SizeInBytes = m_rsUpdateSBTGenerator.GetMissSectionSize();
+                currentTableOffset += ROUND_UP(desc.MissShaderTable.SizeInBytes, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+
+                desc.HitGroupTable.StartAddress = ROUND_UP(sbtAddress + currentTableOffset, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+                desc.HitGroupTable.StrideInBytes = m_rsUpdateSBTGenerator.GetHitGroupEntrySize();
+                desc.HitGroupTable.SizeInBytes = m_rsUpdateSBTGenerator.GetHitGroupSectionSize();
+                currentTableOffset += ROUND_UP(desc.HitGroupTable.SizeInBytes, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+
+                desc.Width = width;
+                desc.Height = height;
+                desc.Depth = 1;
+
+                commandList->DispatchRays(&desc);
+            }
+        }
+
+        for (D3D12_RESOURCE_BARRIER& barrier : bindlessBarriers)
+        {
+            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+        }
+        commandList->ResourceBarrier(UINT(bindlessBarriers.size()), bindlessBarriers.data());
+
+        {
+            nri::NvRtxgiNRCIntegration::Get()->QueryAndTrain(commandList, nullptr);
+        }
+
+        {
+            auto beforeBarriers = CD3DX12_RESOURCE_BARRIER::Transition(GetHDROutputResource(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            commandList->ResourceBarrier(1, &beforeBarriers);
+
+#if 0
+            SetupDescriptorHeaps(commandList);
+
+            UINT width = m_width;
+            UINT height = m_height;
+            {
+                commandList->SetPipelineState(m_radianceResolvePSO.Get());
+                commandList->SetComputeRootSignature(m_radianceResolveRS.GetD3D12RootSignature());
+
+                uint32_t resolution[2] = { width, height };
+                commandList->SetComputeRootConstantBufferView(RADIANCE_RESOLVE_ROOT_NRC_CONSTANTS, m_nrcConstantsCB.GetGpuVirtualAddress(info.backbufferIndex));
+                commandList->SetComputeRoot32BitConstants(RADIANCE_RESOLVE_ROOT_SCREEN_CONSTANTS, 2, resolution, 0);
+                commandList->SetComputeRootDescriptorTable(RADIANCE_RESOLVE_ROOT_NRC_BUFFERS, m_radianceResolveNrcSrvHeap.GpuAddress);
+                commandList->SetComputeRootDescriptorTable(RADIANCE_RESOLVE_ROOT_HDR_OUTPUT, m_pbrSrvUavHeap.GpuAt(HDR_UAV_INDEX));
+
+                commandList->Dispatch(width / 8, height / 8, 1);
+            }
+#else
+            nri::NvRtxgiNRCIntegration::Get()->Resolve(commandList, GetHDROutputResource());
+#endif
+
+            auto afterBarriers = CD3DX12_RESOURCE_BARRIER::Transition(GetHDROutputResource(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+            commandList->ResourceBarrier(1, &afterBarriers);
         }
     }
 
@@ -540,7 +797,7 @@ namespace Neb
             .HeapType = D3D12_HEAP_TYPE_DEFAULT,
         };
 
-        DXGI_FORMAT format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        DXGI_FORMAT format = DXGI_FORMAT_R32G32B32A32_FLOAT;
         D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(format, m_width, m_height, 1, 1);
         resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
@@ -551,8 +808,8 @@ namespace Neb
                                m_hdrResult.ReleaseAndGetAddressOf(), nri::NullRIID, nullptr),
             "Failed to create PBR result resource");
 
-        NEB_SET_HANDLE_NAME(m_hdrResult, "HDR Output Texture2D DXGI_FORMAT_R16G16B16A16_FLOAT allocation");
-        NEB_SET_HANDLE_NAME(m_hdrResult->GetResource(), "HDR Output Texture2D DXGI_FORMAT_R16G16B16A16_FLOAT");
+        NEB_SET_HANDLE_NAME(m_hdrResult, "HDR Output Texture2D DXGI_FORMAT_R32G32B32A32_FLOAT allocation");
+        NEB_SET_HANDLE_NAME(m_hdrResult->GetResource(), "HDR Output Texture2D DXGI_FORMAT_R32G32B32A32_FLOAT");
     }
 
     void DeferredRenderer::InitPBRDescriptorHeaps()
@@ -592,8 +849,8 @@ namespace Neb
             nri::NRIDevice::Get().GetD3D12Device()->CreateUnorderedAccessView(resource, nullptr, &uavDesc, cpuHandle);
         };
 
-        AllocateSrv(this->GetHDROutputResource(), m_pbrSrvUavHeap.CpuAt(HDR_SRV_INDEX), DXGI_FORMAT_R16G16B16A16_FLOAT);
-        AllocateUav(this->GetHDROutputResource(), m_pbrSrvUavHeap.CpuAt(HDR_UAV_INDEX), DXGI_FORMAT_R16G16B16A16_FLOAT);
+        AllocateSrv(this->GetHDROutputResource(), m_pbrSrvUavHeap.CpuAt(HDR_SRV_INDEX), DXGI_FORMAT_R32G32B32A32_FLOAT);
+        AllocateUav(this->GetHDROutputResource(), m_pbrSrvUavHeap.CpuAt(HDR_UAV_INDEX), DXGI_FORMAT_R32G32B32A32_FLOAT);
     }
 
     void DeferredRenderer::InitPBRShadersAndRootSignature()
@@ -642,15 +899,16 @@ namespace Neb
             &psoDesc, IID_PPV_ARGS(m_pbrPipeline.ReleaseAndGetAddressOf())));
     }
 
-    void DeferredRenderer::InitRTAccelerationStructures(ID3D12GraphicsCommandList4* commandList, Scene* scene)
+    void DeferredRenderer::InitRTAccelerationStructures(ID3D12GraphicsCommandList4* commandList)
     {
         // Avoid rebuilding AS if scenes are same
         // TODO: this should not be just a pointer check really...
-        if (m_blas.IsValid() && m_tlas.IsValid() && m_rtScene == scene)
+        if (m_blas.IsValid() && m_tlas.IsValid() && !m_needsASUpdate)
         {
             return;
         }
-        m_rtScene = scene;
+
+        Scene* scene = m_scene;
 
         NEB_LOG_INFO("Creating BLAS/TLAS structures...");
 
@@ -666,6 +924,7 @@ namespace Neb
             .instanceID = 0,    // TODO: Figure it out
             .hitGroupIndex = 0, // TODO: Change to actually match SBT entry
             .flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE,
+            //.flags = D3D12_RAYTRACING_INSTANCE_FLAG_NONE,
         };
 
         m_tlas = m_asBuilder.CreateTlas(commandList, std::span(&instance, 1));
@@ -691,6 +950,7 @@ namespace Neb
             device.GetD3D12Device()->CreateShaderResourceView(nullptr, &srvDesc, m_tlasSrvHeap.CpuAddress);
         }
         NEB_LOG_INFO("Creating TLAS SRV - Done!");
+        m_needsASUpdate = false;
     }
 
     void DeferredRenderer::InitHDRTonemapShadersAndRootSignature()
@@ -732,75 +992,363 @@ namespace Neb
         nri::ThrowIfFailed(nri::NRIDevice::Get().GetD3D12Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(m_tonemapPipeline.ReleaseAndGetAddressOf())),
             "Failed to create tonemapping pipeline");
     }
+    
+    bool DeferredRenderer::ConfigureNRCState(const nrc::ContextSettings& nrcContextSettings)
+    {
+        if (m_nrcContextSettings != nrcContextSettings)
+        {
+            m_nrcContextSettings = nrcContextSettings;
+            nri::NvRtxgiNRCIntegration::Get()->Configure(nrcContextSettings);
+            return true;
+        }
+        return false;
+    }
 
-    void DeferredRenderer::InitPathtracerShadersAndRootSignature()
+    void DeferredRenderer::InitPathtracerScene(Scene* scene)
+    {
+        nri::ThrowIfFalse(m_giScene.InitScene(scene->StaticMeshes), "Failed to initialize GI scene for pathtracer");
+    }
+    
+    void DeferredRenderer::InitPathtracerDescriptors()
+    {
+        nri::NvRtxgiNRCIntegration* rtxgiIntegration = nri::NvRtxgiNRCIntegration::Get();
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+
+        static constexpr auto GetUavDescOfNRCBuffer = [](const nri::NvRtxgiNRCIntegration::NRCBuffer& nrcBuffer)
+        {
+            NEB_ASSERT(nrcBuffer.info.allowUAV, "Uav is not allowed?");
+            return D3D12_UNORDERED_ACCESS_VIEW_DESC{
+                .Format = DXGI_FORMAT_UNKNOWN,
+                .ViewDimension = D3D12_UAV_DIMENSION_BUFFER,
+                .Buffer = D3D12_BUFFER_UAV{
+                    .FirstElement = 0,
+                    .NumElements = static_cast<UINT>(nrcBuffer.info.elementCount),
+                    .StructureByteStride = static_cast<UINT>(nrcBuffer.info.elementSize),
+                }
+            };
+        };
+
+        // order of UAVs is important
+        m_nrcBufferUavHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptors(5);
+
+        // only required NRC buffers, not all... IN ORDER declared in the shader!
+        std::array nrcBuffers = {
+            rtxgiIntegration->GetNRCBuffer(nrc::BufferIdx::QueryPathInfo),
+            rtxgiIntegration->GetNRCBuffer(nrc::BufferIdx::TrainingPathInfo),
+            rtxgiIntegration->GetNRCBuffer(nrc::BufferIdx::TrainingPathVertices),
+            rtxgiIntegration->GetNRCBuffer(nrc::BufferIdx::QueryRadianceParams),
+            rtxgiIntegration->GetNRCBuffer(nrc::BufferIdx::Counter),
+        };
+        for (uint32_t i = 0; i < nrcBuffers.size(); ++i)
+        {
+            D3D12_UNORDERED_ACCESS_VIEW_DESC desc = GetUavDescOfNRCBuffer(nrcBuffers[i]);
+            device.GetD3D12Device()->CreateUnorderedAccessView(nrcBuffers[i].resource.Get(), nullptr, &desc, m_nrcBufferUavHeap.CpuAt(i));
+        };
+    }
+
+    void DeferredRenderer::InitPathtracerShadersAndRootSignatures()
     {
         const std::filesystem::path shaderDirectory = Nebulae::Get().GetSpecification().AssetsDirectory / "shaders";
         const std::filesystem::path shaderFilepath = shaderDirectory / "pathtracer.hlsl";
 
-        m_rsPathtracer = nri::ShaderCompiler::Get()->CompileLibrary(
+        m_rsUpdatePathtracer = nri::ShaderCompiler::Get()->CompileLibrary(
             shaderFilepath.string(),
-            nri::LibraryCompilationDesc(),
+            nri::LibraryCompilationDesc().AddDefine(nri::ShaderDefine("NRC_UPDATE", "1")),
             nri::eShaderCompilationFlag_Enable16BitTypes); // NRC needs 16-bit types to be enabled/supported
 
-        NEB_ASSERT(m_rsPathtracer.HasBinary(), "Failed to compile basic RT shader: {}", shaderFilepath.string());
+        m_rsQueryPathtracer = nri::ShaderCompiler::Get()->CompileLibrary(
+            shaderFilepath.string(),
+            nri::LibraryCompilationDesc().AddDefine(nri::ShaderDefine("NRC_QUERY", "1")),
+            nri::eShaderCompilationFlag_Enable16BitTypes); // NRC needs 16-bit types to be enabled/supported
+
+        NEB_ASSERT(m_rsUpdatePathtracer.HasBinary(), "Failed to compile update NRC pathtracer shader: {}", shaderFilepath.string());
+        NEB_ASSERT(m_rsQueryPathtracer.HasBinary(), "Failed to compile query NRC pathtracer shader: {}", shaderFilepath.string());
 
         nri::NRIDevice& device = nri::NRIDevice::Get();
         {
             // Initialize root signatures for RT pathtracer
             // clang-format on
-            m_giGlobalRS = nri::RootSignature(PATHTRACER_ROOT_NUM_ROOTS, 1 /*1 static sampler for materials*/);
-            m_giGlobalRS.AddParamCbv(PATHTRACER_ROOT_NRC_CONSTANTS, /*register*/ 0, /*space*/ 0);
-            m_giGlobalRS.AddParamCbv(PATHTRACER_ROOT_GLOBAL_CONSTANTS, /*register*/ 1, /*space*/ 0);
+            nri::RootSignature& rs = m_giGlobalRS;
+            rs = nri::RootSignature(PATHTRACER_ROOT_NUM_ROOTS, 1 /*1 static sampler for materials*/);
+            rs.AddParamCbv(PATHTRACER_ROOT_NRC_CONSTANTS, /*register*/ 0, /*space*/ 0);
+            rs.AddParamCbv(PATHTRACER_ROOT_GLOBAL_CONSTANTS, /*register*/ 1, /*space*/ 0);
             // NRC resources
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_QUERY_PATH_INFO,           CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 0, /*space*/ 0));
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_TRAINING_INFO,             CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 1, /*space*/ 0));
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_TRAINING_PATH_VERTICES,    CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 2, /*space*/ 0));
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_QUERY_RADIANCE_PARAMS,     CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 3, /*space*/ 0));
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_COUNTERS_DATA,             CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 4, /*space*/ 0));
+            rs.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_BUFFERS, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 5, /*register*/ 0, /*space*/ 0));
+            rs.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_NEBULAE_BUFFERS, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ NRC_NEB_DEBUG_BUFFER_NUM_BUFFERS, /*register*/ 0, /*space*/ 1));
             // Gbuffers/additional scene information
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_GBUFFER_TEXTURES,  CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ GBUFFER_SLOT_NUM_SLOTS, /*register*/ 0, /*space*/ 1));
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_SCENE_DEPTH,       CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 0, /*space*/ 0));
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_SCENE_STENCIL,     CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 1, /*space*/ 0));
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_SCENE_BVH,         CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 2, /*space*/ 0));
+            rs.AddParamDescriptorTable(PATHTRACER_ROOT_GBUFFER_TEXTURES,  CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ GBUFFER_SLOT_NUM_SLOTS, /*register*/ 0, /*space*/ 1));
+            rs.AddParamDescriptorTable(PATHTRACER_ROOT_SCENE_DEPTH,       CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 0, /*space*/ 0));
+            rs.AddParamDescriptorTable(PATHTRACER_ROOT_SCENE_STENCIL,     CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 1, /*space*/ 0));
+            rs.AddParamDescriptorTable(PATHTRACER_ROOT_SCENE_BVH,         CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 2, /*space*/ 0));
             // bindless
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_BINDLESS_TEXTURES, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ UINT_MAX, /*register*/ 0, /*space*/ 3, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE));
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_BINDLESS_BUFFERS,  CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ UINT_MAX, /*register*/ 0, /*space*/ 4, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE));
+            rs.AddParamDescriptorTable(PATHTRACER_ROOT_BINDLESS_TEXTURES, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ UINT_MAX, /*register*/ 0, /*space*/ 3, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE));
+            rs.AddParamDescriptorTable(PATHTRACER_ROOT_BINDLESS_BUFFERS, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ UINT_MAX, /*register*/ 0, /*space*/ 4, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE));
             // mesh/material data for geometry reconstruction during ray tracing
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_INSTANCE_DATA, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 1, /*space*/ 5));
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_GEOMETRY_DATA, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 2, /*space*/ 5));
-            m_giGlobalRS.AddParamDescriptorTable(PATHTRACER_ROOT_MATERIAL_DATA, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 3, /*space*/ 5));
-            m_giGlobalRS.AddStaticSampler(0, CD3DX12_STATIC_SAMPLER_DESC(0));
+            rs.AddParamDescriptorTable(PATHTRACER_ROOT_GEOMETRY_DATA, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 2, /*space*/ 5));
+            rs.AddParamDescriptorTable(PATHTRACER_ROOT_MATERIAL_DATA, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 3, /*space*/ 5));
+            rs.AddStaticSampler(0, CD3DX12_STATIC_SAMPLER_DESC(0));
             // clang-format on
+            nri::ThrowIfFalse(rs.Init(&device), "failed to init global rs for rt scene");
         }
-        nri::ThrowIfFalse(m_giGlobalRS.Init(&device), "failed to init global rs for rt scene");
-
-        //D3D12_DESCRIPTOR_RANGE1 outputTextureUav = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
-        //m_rayGenRS = nri::RootSignature(eRaygenRoot_NumRoots)
-        //                 .AddParamDescriptorTable(eRaygenRoot_OutputUav, std::array{ outputTextureUav });
-
-        //nri::ThrowIfFalse(m_rayGenRS.Init(&device, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE));
-
-        ///* clang-format off */
-        //const nri::RootSignature emptyLocalRS = nri::RootSignature::Empty(&device, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
-        //m_rayClosestHitRS   = emptyLocalRS;
-        //m_rayMissRS         = emptyLocalRS;
-        //m_shadowHitRS       = emptyLocalRS;
-        //m_shadowMissRS      = emptyLocalRS;
-        ///* clang-format on */
-        //return true;
+        //m_giGlobalRS        = nri::RootSignature::Empty(&device);
+        m_giRayGenRS        = nri::RootSignature::Empty(&device, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+        m_giRayClosestHitRS = nri::RootSignature::Empty(&device, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+        m_giRayMissRS       = nri::RootSignature::Empty(&device, D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
     }
 
     void DeferredRenderer::InitPathtracerPipeline()
     {
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+
+        struct PathtracerRayPayload
+        {
+            float hitDistance;
+            uint32_t instanceID;
+            uint32_t primitiveIndex;
+            uint32_t geometryIndex;
+            Vec2 barycentrics;
+            uint32_t hitKind;
+        };
+
+        struct PathtracerRayAttributes
+        {
+            Vec2 uv;
+        };
+
+        // UPDATE PSO STATE
+        nv_helpers_dx12::RayTracingPipelineGenerator updatePipelineGenerator(device.GetD3D12Device());
+        {
+            updatePipelineGenerator.AddLibrary(m_rsUpdatePathtracer.GetDxcBinaryBlob(),
+                {
+                    L"PathtracerRG",
+                    L"PathtracerMS",
+                    L"PathtracerCH",
+                });
+
+            updatePipelineGenerator.AddHitGroup(L"HitGroup", L"PathtracerCH");
+            updatePipelineGenerator.AddRootSignatureAssociation(m_giRayGenRS.GetD3D12RootSignature(), { L"PathtracerRG" });
+            updatePipelineGenerator.AddRootSignatureAssociation(m_giRayMissRS.GetD3D12RootSignature(), { L"PathtracerMS" });
+            updatePipelineGenerator.AddRootSignatureAssociation(m_giRayClosestHitRS.GetD3D12RootSignature(), { L"HitGroup" });
+            updatePipelineGenerator.SetMaxPayloadSize(sizeof(PathtracerRayPayload));      // see PathtracerRayPayload struct in pathtracer.hlsl
+            updatePipelineGenerator.SetMaxAttributeSize(sizeof(PathtracerRayAttributes)); // see Attributes struct in pathtracer.hlsl
+            updatePipelineGenerator.SetMaxRecursionDepth(MaxPathtracingRecursionDepth);
+        }
+        m_nrcUpdatePSO = updatePipelineGenerator.Generate(m_giGlobalRS.GetD3D12RootSignature());
+        NEB_ASSERT(m_nrcUpdatePSO != NULL);
+
+        // QUERY PSO STATE
+        nv_helpers_dx12::RayTracingPipelineGenerator queryPipelineGenerator(device.GetD3D12Device());
+        {
+            queryPipelineGenerator.AddLibrary(m_rsQueryPathtracer.GetDxcBinaryBlob(),
+                {
+                    L"PathtracerRG",
+                    L"PathtracerMS",
+                    L"PathtracerCH",
+                });
+
+            queryPipelineGenerator.AddHitGroup(L"HitGroup", L"PathtracerCH");
+            queryPipelineGenerator.AddRootSignatureAssociation(m_giRayGenRS.GetD3D12RootSignature(), { L"PathtracerRG" });
+            queryPipelineGenerator.AddRootSignatureAssociation(m_giRayMissRS.GetD3D12RootSignature(), { L"PathtracerMS" });
+            queryPipelineGenerator.AddRootSignatureAssociation(m_giRayClosestHitRS.GetD3D12RootSignature(), { L"HitGroup" });
+            queryPipelineGenerator.SetMaxPayloadSize(sizeof(PathtracerRayPayload));      // see PathtracerRayPayload struct in pathtracer.hlsl
+            queryPipelineGenerator.SetMaxAttributeSize(sizeof(PathtracerRayAttributes)); // see Attributes struct in pathtracer.hlsl
+            queryPipelineGenerator.SetMaxRecursionDepth(MaxPathtracingRecursionDepth);
+        }
+        m_nrcQueryPSO = queryPipelineGenerator.Generate(m_giGlobalRS.GetD3D12RootSignature());
+        NEB_ASSERT(m_nrcQueryPSO != NULL);
     }
 
-    void DeferredRenderer::InitPathtracerBindlessDescriptors(Scene* scene)
+    void DeferredRenderer::InitPathtracerSBT()
     {
         nri::NRIDevice& device = nri::NRIDevice::Get();
-        nri::DescriptorHeap& heap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
+        static constexpr auto GenerateSBT = [](nv_helpers_dx12::ShaderBindingTableGenerator& generator, nri::Rc<ID3D12StateObject> pso) -> nri::Rc<ID3D12Resource>
+        {
+            // we only use global RS
+            generator.Reset();
+            generator.AddRayGenerationProgram(L"PathtracerRG", {});
+            generator.AddMissProgram(L"PathtracerMS", {});
+            generator.AddHitGroup(L"HitGroup", {});
+            const uint32_t sbtSize = generator.ComputeSBTSize();
+
+            D3D12MA::Allocator* allocator = nri::NRIDevice::Get().GetResourceAllocator();
+            D3D12MA::ALLOCATION_DESC allocDesc = { .HeapType = D3D12_HEAP_TYPE_UPLOAD };
+
+            nri::Rc<ID3D12Resource> sbtBuffer;
+            // Create shader binding table buffer
+            {
+                D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(sbtSize);
+
+                // Ignoring InitialState D3D12_RESOURCE_STATE_UNORDERED_ACCESS.
+                // Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
+                nri::Rc<D3D12MA::Allocation> allocation;
+                nri::ThrowIfFailed(allocator->CreateResource(&allocDesc, &desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+                    nullptr,
+                    allocation.GetAddressOf(),
+                    IID_PPV_ARGS(sbtBuffer.ReleaseAndGetAddressOf())));
+            }
+            NEB_ASSERT(sbtBuffer, "Failed to create shader binding table buffer!");
+
+            // Compile the SBT from the shader and parameters info
+            try
+            {
+                nri::Rc<ID3D12StateObjectProperties> psoProperties;
+                nri::ThrowIfFailed(pso->QueryInterface(psoProperties.GetAddressOf()));
+                generator.Generate(sbtBuffer.Get(), psoProperties.Get());
+            }
+            catch (std::logic_error& error)
+            {
+                NEB_LOG_ERROR("Failed to generate Shader Binding Table: {}", error.what());
+                NEB_ASSERT(false);
+            }
+            return sbtBuffer;
+        };
+
+        m_rsUpdateSBTBuffer = GenerateSBT(m_rsUpdateSBTGenerator, m_nrcUpdatePSO);
+        m_rsQuerySBTBuffer = GenerateSBT(m_rsQuerySBTGenerator, m_nrcQueryPSO);
+    }
+
+    void DeferredRenderer::InitPathtracerConstantBuffers()
+    {
+        nri::ThrowIfFalse(m_nrcConstantsCB.Init(nri::ConstantBufferDesc{
+            .NumBuffers = Renderer::NumInflightFrames,
+            .NumBytesPerBuffer = AlignUp(sizeof(NrcConstants), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT) }));
+        m_nrcConstantsCB.SetName("GI: NRC Constant buffer");
+
+        nri::ThrowIfFalse(m_globalConstantsCB.Init(nri::ConstantBufferDesc{
+            .NumBuffers = Renderer::NumInflightFrames,
+            .NumBytesPerBuffer = sizeof(GlobalConstants) }));
+        m_globalConstantsCB.SetName("GI: Global constant buffer");
+    }
+
+    void DeferredRenderer::InitPathtracerNRCQueryDebugResources(UINT width, UINT height)
+    {
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        m_NRCDebugBuffersHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptors(NRC_NEB_DEBUG_BUFFER_NUM_BUFFERS);
+
+        D3D12MA::Allocator* allocator = device.GetResourceAllocator();
+        D3D12MA::ALLOCATION_DESC allocDesc = {
+            .Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED,
+            .HeapType = D3D12_HEAP_TYPE_DEFAULT,
+        };
+        {
+            // NRC_NEB_DEBUG_BUFFER_QUERY_THROUGHPUT_MAP
+            D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R16G16B16A16_FLOAT, width, height);
+            resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+            nri::D3D12Rc<D3D12MA::Allocation> allocation;
+            nri::ThrowIfFailed(allocator->CreateResource(
+                &allocDesc,
+                &resourceDesc,
+                D3D12_RESOURCE_STATE_COMMON, // No need to use copy dest state. Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
+                nullptr, allocation.GetAddressOf(),
+                IID_PPV_ARGS(m_NRCDebugQueryThroughputMap.ReleaseAndGetAddressOf())));
+
+            // hack to convert from string to wstring using <filesystem>. Not sure if that ok to do
+            NEB_SET_HANDLE_NAME(m_NRCDebugQueryThroughputMap, "NRC-Debug QueryThroughputMap");
+
+
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {
+                .Format = DXGI_FORMAT_R16G16B16A16_FLOAT,
+                .ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D,
+                .Texture2D = D3D12_TEX2D_UAV()
+            };
+            device.GetD3D12Device()->CreateUnorderedAccessView(m_NRCDebugQueryThroughputMap.Get(), nullptr, &uavDesc, m_NRCDebugBuffersHeap.CpuAt(NRC_NEB_DEBUG_BUFFER_QUERY_THROUGHPUT_MAP));
+        }
+        
+        {
+            // NRC_NEB_DEBUG_BUFFER_QUERY_HIT_MAP
+            D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R16_UINT, width, height);
+            resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+            nri::D3D12Rc<D3D12MA::Allocation> allocation;
+            nri::ThrowIfFailed(allocator->CreateResource(
+                &allocDesc,
+                &resourceDesc,
+                D3D12_RESOURCE_STATE_COMMON, // No need to use copy dest state. Buffers are effectively created in state D3D12_RESOURCE_STATE_COMMON.
+                nullptr, allocation.GetAddressOf(),
+                IID_PPV_ARGS(m_NRCDebugQueryHitMap.ReleaseAndGetAddressOf())));
+
+            // hack to convert from string to wstring using <filesystem>. Not sure if that ok to do
+            NEB_SET_HANDLE_NAME(m_NRCDebugQueryHitMap, "NRC-Debug HitMap");
+
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {
+                .Format = DXGI_FORMAT_R16_UINT,
+                .ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D,
+                .Texture2D = D3D12_TEX2D_UAV()
+            };
+            device.GetD3D12Device()->CreateUnorderedAccessView(m_NRCDebugQueryHitMap.Get(), nullptr, &uavDesc, m_NRCDebugBuffersHeap.CpuAt(NRC_NEB_DEBUG_BUFFER_QUERY_HIT_MAP));
+        }
+    }
+
+    void DeferredRenderer::InitRadianceResolveShadersAndPSO()
+    {
+        const std::filesystem::path shaderDirectory = Nebulae::Get().GetSpecification().AssetsDirectory / "shaders";
+        const std::filesystem::path shaderFilepath = shaderDirectory / "radiance_resolve.hlsl";
+
+        m_csRadianceResolve = nri::ShaderCompiler::Get()->CompileShader(
+            shaderFilepath.string(),
+            nri::ShaderCompilationDesc("CSMain", nri::EShaderModel::sm_6_5, nri::EShaderType::Compute),
+            nri::eShaderCompilationFlag_Enable16BitTypes); // NRC needs 16-bit types to be enabled/supported
+
+        NEB_ASSERT(m_csRadianceResolve.HasBinary(), "Failed to compile radiance resolve compute shader: {}", shaderFilepath.string());
+
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        m_radianceResolveRS = nri::RootSignature(RADIANCE_RESOLVE_ROOT_NUM_ROOTS)
+                                  .AddParamCbv(RADIANCE_RESOLVE_ROOT_NRC_CONSTANTS, 0)
+                                  .AddParam32BitConstants(RADIANCE_RESOLVE_ROOT_SCREEN_CONSTANTS, 2, 1)
+                                  .AddParamDescriptorTable(RADIANCE_RESOLVE_ROOT_NRC_BUFFERS,
+                                      CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 2, /*register*/ 0, /*space*/ 0))
+
+                                  .AddParamDescriptorTable(RADIANCE_RESOLVE_ROOT_HDR_OUTPUT,
+                                      CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 0, /*space*/ 1));
+
+        nri::ThrowIfFalse(m_radianceResolveRS.Init(&device), "failed to init radiance resolve compute root sig");
+
+        D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = m_radianceResolveRS.GetD3D12RootSignature();
+        psoDesc.CS = m_csRadianceResolve.GetBinaryBytecode();
+        nri::ThrowIfFailed(nri::NRIDevice::Get().GetD3D12Device()->CreateComputePipelineState(
+            &psoDesc, IID_PPV_ARGS(m_radianceResolvePSO.ReleaseAndGetAddressOf())));
+    }
+
+    void DeferredRenderer::InitRadianceResolveCreateResourcesAndDescriptors()
+    {
+        nri::NRIDevice& device = nri::NRIDevice::Get();
+        nri::NvRtxgiNRCIntegration* nrcIntegration = nri::NvRtxgiNRCIntegration::Get();
+        m_radianceResolveNrcSrvHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptors(2);
+        {
+            const nri::NvRtxgiNRCIntegration::NRCBuffer& buffer = nrcIntegration->GetNRCBuffer(nrc::BufferIdx::QueryPathInfo);
+            const D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {
+                .Format = DXGI_FORMAT_UNKNOWN,
+                .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+                .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+                .Buffer = D3D12_BUFFER_SRV{
+                    .FirstElement = 0,
+                    .NumElements = static_cast<UINT>(buffer.info.elementCount),
+                    .StructureByteStride = static_cast<UINT>(buffer.info.elementSize),
+                }
+            };
+            device.GetD3D12Device()->CreateShaderResourceView(buffer.resource.Get(), &srvDesc, m_radianceResolveNrcSrvHeap.CpuAt(0));
+        }
+
+        {
+            // Query radiance buffer
+            const nri::NvRtxgiNRCIntegration::NRCBuffer& buffer = nrcIntegration->GetNRCBuffer(nrc::BufferIdx::QueryRadiance);
+            const D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {
+                .Format = DXGI_FORMAT_UNKNOWN,
+                .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+                .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+                .Buffer = D3D12_BUFFER_SRV{
+                    .FirstElement = 0,
+                    .NumElements = static_cast<UINT>(buffer.info.elementCount),
+                    .StructureByteStride = static_cast<UINT>(buffer.info.elementSize),
+                }
+            };
+            device.GetD3D12Device()->CreateShaderResourceView(buffer.resource.Get(), &srvDesc, m_radianceResolveNrcSrvHeap.CpuAt(1));
+        }
         
     }
+
 
 } // Neb namespace

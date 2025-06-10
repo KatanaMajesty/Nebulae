@@ -236,10 +236,54 @@ LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
+#define ENABLE_PIX_GPU_CAPTURE_DLL 0
+#include <filesystem>
+#include <shlobj.h>
+
+#if ENABLE_PIX_GPU_CAPTURE_DLL 
+static std::wstring GetLatestWinPixGpuCapturerPath()
+{
+    LPWSTR programFilesPath = nullptr;
+    SHGetKnownFolderPath(FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, NULL, &programFilesPath);
+
+    std::filesystem::path pixInstallationPath = programFilesPath;
+    pixInstallationPath /= "Microsoft PIX";
+
+    std::wstring newestVersionFound;
+
+    for (auto const& directory_entry : std::filesystem::directory_iterator(pixInstallationPath))
+    {
+        if (directory_entry.is_directory())
+        {
+            if (newestVersionFound.empty() || newestVersionFound < directory_entry.path().filename().c_str())
+            {
+                newestVersionFound = directory_entry.path().filename().c_str();
+            }
+        }
+    }
+
+    if (newestVersionFound.empty())
+    {
+        throw std::runtime_error("No WinPixGpuCapturer.dll was found!");
+    }
+
+    return pixInstallationPath / newestVersionFound / L"WinPixGpuCapturer.dll";
+}
+#endif
+
 int32_t main(int argc, char* argv[])
 {
     // provides the executable's module handle, which is the same as the hInstance
     HINSTANCE hInstance = GetModuleHandle(nullptr);
+
+#if ENABLE_PIX_GPU_CAPTURE_DLL
+    // Check to see if a copy of WinPixGpuCapturer.dll has already been injected into the application.
+    // This may happen if the application is launched through the PIX UI.
+    if (GetModuleHandleW(L"WinPixGpuCapturer.dll") == 0)
+    {
+        LoadLibraryW(GetLatestWinPixGpuCapturerPath().c_str());
+    }
+#endif
 
 #if defined(NEB_WIN32_APPLICATION)
     WIN32Console console;

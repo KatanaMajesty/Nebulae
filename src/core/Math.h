@@ -2,6 +2,7 @@
 
 #include <numbers>
 #include <concepts>
+#include <limits>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN // Exclude rarely-used stuff from Windows headers.
@@ -58,15 +59,12 @@ namespace Neb
         return t * Mul;
     }
 
+    static constexpr float Inf = std::numeric_limits<float>::infinity();
+
     struct AABB
     {
-        AABB() = default;
-
-        AABB(const AABB&) = default;
-        AABB& operator=(const AABB&) = default;
-
-        Vec3 min = Vec3();
-        Vec3 max = Vec3();
+        Vec3 min = Vec3(Inf);
+        Vec3 max = Vec3(-Inf);
     };
 
 #if 0

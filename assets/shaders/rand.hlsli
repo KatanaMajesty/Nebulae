@@ -53,3 +53,9 @@ float2 Rand2(inout uint rngState)
 {
     return float2(Rand(rngState), Rand(rngState));
 }
+
+// Generates 3 random normalized floats from 0 to 1
+float3 Rand3(inout uint rngState)
+{
+    return float3(Rand(rngState), Rand(rngState), Rand(rngState));
+}
