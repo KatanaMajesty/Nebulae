@@ -74,7 +74,9 @@ namespace Neb::nri
     {
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
         inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-        inputs.Flags = {}; // no D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE for BLAS - we only update TLAS
+        inputs.Flags = 
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION | D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE; 
+            // no D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE for BLAS - we only update TLAS
         inputs.NumDescs = static_cast<UINT>(geometryArray.size());
         inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
         inputs.pGeometryDescs = geometryArray.data();

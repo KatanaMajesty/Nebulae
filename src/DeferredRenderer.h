@@ -217,14 +217,22 @@ namespace Neb
 
         CONSTANT_BUFFER_STRUCT GlobalConstants
         {
+            // https://maraneshi.github.io/HLSL-ConstantBufferLayoutVisualizer/
             uint32_t frameIndex;
             uint32_t samplesPerPixel;
             Vec2 nrcTrainingDownscale;
+
             uint32_t nrcMaxPathVertices;
             Vec3 cameraWorldPos;
+
             Vec3 skyColor;
+            uint32_t _pad0;
+
             Vec3 sunLightDirection;
+            uint32_t _pad1;
+
             Vec3 sunLightRadiance;
+            float sunTanHalfAngle;
             float throughputThreshold;
         };
 

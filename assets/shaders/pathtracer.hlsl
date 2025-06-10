@@ -4,20 +4,28 @@
 #include "octahedron_encoding.hlsli"
 #include "rand.hlsli"
 #include "brdf.hlsli"
+#include "sun_disk_sampling.hlsli"
 
 #define TRACING_MAX_DISTANCE 10000.0f
 
 struct GlobalConstants
 {
+    // https://maraneshi.github.io/HLSL-ConstantBufferLayoutVisualizer/
     uint frameIndex;
     uint samplesPerPixel;
     float2 nrcTrainingDownscale;
 
     uint nrcMaxPathVertices;
     float3 cameraWorldPos;
+
     float3 skyColor;
+    uint _pad0;
+
     float3 sunLightDirection;
+    uint _pad1;
+
     float3 sunLightRadiance;
+    float sunTanHalfAngle;
     float throughputThreshold;
 };
 
@@ -107,18 +115,8 @@ struct RayPayload
     uint primitiveIndex;
     uint geometryIndex;
     float2 barycentrics;
-    uint hitKind;
 
-    bool IsHit()
-    {
-        return hitDistance > 0.0f;
-    }
-
-    bool IsFrontFacing()
-    {
-        // in glTF we treat it vice versa
-        return hitKind == HIT_KIND_TRIANGLE_FRONT_FACE;
-    }
+    bool IsHit() { return hitDistance > 0.0f; }
 };
 
 struct Attributes
@@ -198,10 +196,10 @@ BRDFData PrepareBRDFData(float3 N, float3 L, float3 V, in SurfaceSample surfaceS
     //data.H = Ndf_HalfvectorSampleGGXVndf(V, float2(data.alpha, data.alpha), u);
     
     float3 H = data.H;
-    data.LdotN = saturate(dot(L, N));
+    data.LdotN = dot(L, N);
     data.LdotH = dot(L, H);
     data.VdotH = saturate(dot(V, H));
-    data.VdotN = saturate(dot(V, N));
+    data.VdotN = dot(V, N);
     data.NdotH = dot(N, H);
 
     // Unpack material properties
@@ -210,88 +208,33 @@ BRDFData PrepareBRDFData(float3 N, float3 L, float3 V, in SurfaceSample surfaceS
     return data;
 }
 
-float4 getRotationToZAxis(float3 input)
+// This is an entry point for evaluation of all other BRDFs based on selected configuration (for direct light)
+float3 EvaluateDirectBRDF(in uint2 loc,
+                    in uint rng,
+                    in SurfaceSample surfaceSample,
+                    in float3 V,
+                    in float3 L)
 {
+    float3 SN = surfaceSample.SN;
+    BRDFData data = PrepareBRDFData(SN, L, V, surfaceSample, Rand2(rng));
 
-    // Handle special case when input is exact or near opposite of (0, 0, 1)
-    if (input.z < -0.99999f)
-    {
-        return float4(1.0f, 0.0f, 0.0f, 0.0f);
-    }
+    // Ignore V and L rays "below" the hemisphere
+    if (data.VdotN < 0.0 || data.LdotN < 0.0)
+        return 0.0;
 
-    return normalize(float4(input.y, -input.x, 0.0f, 1.0f + input.z));
+    // Eval specular and diffuse BRDFs
+    float3 F0 = Brdf_GetSpecularF0(surfaceSample.albedo, surfaceSample.metalness);
+    float3 F = Brdf_FresnelSchlick(F0, saturate(data.VdotH));
+    float3 Kd = 1.0 - F; // We assume F to represent Ks -> Kd = 1.0 - Ks
+    float3 O = Kd * Brdf_Diffuse_Lambertian(surfaceSample.albedo) + Brdf_Specular_CookTorrance(F, surfaceSample.roughness,
+                                                                                                        saturate(data.VdotN),
+                                                                                                        saturate(data.LdotN),
+                                                                                                        saturate(data.VdotH),
+                                                                                                        saturate(data.NdotH));
+    return O;
 }
 
-// Returns the quaternion with inverted rotation
-float4 invertRotation(float4 q)
-{
-    return float4(-q.x, -q.y, -q.z, q.w);
-}
-
-// Optimized point rotation using quaternion
-// Source: https://gamedev.stackexchange.com/questions/28395/rotating-vector3-by-a-quaternion
-float3 rotatePoint(float4 q, float3 v)
-{
-    const float3 qAxis = float3(q.x, q.y, q.z);
-    return 2.0f * dot(qAxis, v) * qAxis + (q.w * q.w - dot(qAxis, qAxis)) * v + 2.0f * q.w * cross(qAxis, v);
-}
-
-#if 0
-bool EvaluateBRDF(in uint2 loc,
-                  in uint rng,
-                  in SurfaceSample surfaceSample,
-                  in float3 V,
-                  out float3 rayDirection,
-                  out float3 sampleWeight,
-                  out float pdf,
-                  out float diffuseProbability)
-{
-    rayDirection = 0..xxx;
-    pdf = 0.f;
-    sampleWeight = 0..xxx;
-    diffuseProbability = 0.f;
-    if (dot(surfaceSample.SN, V) <= 0.0f)
-    {
-        return false;
-    }
-
-    // Transform view direction into local space of our sampling routines
-    // (local space is oriented so that its positive Z axis points along the shading normal)
-    float4 qRotationToZ = getRotationToZAxis(surfaceSample.SN);
-    float3 Vlocal = rotatePoint(qRotationToZ, V);
-    const float3 Nlocal = float3(0.0f, 0.0f, 1.0f);
-
-    // Sample diffuse ray using cosine-weighted hemisphere sampling
-    float3 rayDirectionLocal = CosineSampleHemisphere(Rand2(rng));
-
-    BRDFData data = PrepareBRDFData(Nlocal, normalize(rayDirectionLocal), Vlocal, surfaceSample, Rand2(rng));
-
-    // Function 'diffuseTerm' is predivided by PDF of sampling the cosine weighted hemisphere
-    sampleWeight = data.diffuseReflectance;
-    pdf = data.LdotN * PI_INV;
-
-    if (Luminance(sampleWeight) == 0.0f)
-    {
-        return false;
-    }
-
-    // Transform sampled direction Llocal back to V vector space
-    rayDirection = normalize(rotatePoint(invertRotation(qRotationToZ), rayDirectionLocal));
-
-    // Prevent tracing direction "under" the hemisphere (behind the triangle)
-    if (dot(surfaceSample.GN, rayDirection) <= 0.0f)
-    {
-        return false;
-    }
-
-    float specularBrdfProbability = Brdf_GetSpecularProbability(data.VdotN, data.specularF0, surfaceSample.albedo);
-    diffuseProbability = 1.0 - specularBrdfProbability;
-
-    return true;
-}
-
-#else
-bool EvaluateBRDF(in uint2 loc,
+bool EvaluateIndirectBRDF(in uint2 loc,
                   in uint rng,
                   in SurfaceSample surfaceSample,
                   in float3 V,
@@ -319,22 +262,21 @@ bool EvaluateBRDF(in uint2 loc,
 
     // Function 'diffuseTerm' is predivided by PDF of sampling the cosine weighted hemisphere
     // as we use lambertian BRDF, diffuse sample weight == diffuse component == diffuse reflectance factor
-    diffuseProbability = (1.0 - Brdf_GetSpecularProbability(data.VdotN, data.specularF0, surfaceSample.albedo));
+    diffuseProbability = (1.0 - Brdf_GetSpecularProbability(saturate(data.VdotN), data.specularF0, surfaceSample.albedo));
     //diffuseProbability = (1.0 - Brdf_FresnelSchlick(data.specularF0, data.VdotN));
     sampleWeight = data.diffuseReflectance;
 
     // Prevent tracing direction with no contribution
     rayDirection = L;
-    if (Luminance(sampleWeight) == 0.0f)
-        return false;
+    //if (Luminance(sampleWeight) == 0.0f)
+    //    return false;
 
     // Prevent tracing direction "under" the hemisphere (behind the triangle)
-    if (dot(surfaceSample.GN, rayDirection) <= 0.0f)
-        return false;
+    //if (dot(surfaceSample.GN, rayDirection) <= 0.0f)
+    //    return false;
 
     return true;
 }
-#endif
 
 static const int InvalidIndex = -1;
 
@@ -359,31 +301,6 @@ uint3 ReadUint32Indices(in ByteAddressBuffer buffer, in uint offsetInBytes)
     return indices;
 }
 
-#if 0
-uint3 ReadUint16Indices(in ByteAddressBuffer buffer, in uint offsetInBytes)
-{
-    uint alignedOffset = offsetInBytes & ~3u; // 4-byte aligned offset
-
-    // How many bytes are we inside that dword? 0 or 2
-    uint byteShift = offsetInBytes & 3u; // 0 or 2
-    uint bitShift = byteShift << 3; // 0 or 16
-
-    // Read eight bytes into a single uint64 (introduced after SM 6.0)
-    uint64_t packed1 = uint64_t(buffer.Load(alignedOffset)) << 32;
-    uint64_t packed2 = uint64_t(buffer.Load(alignedOffset + 4));
-    uint64_t pair = packed1 | packed2; // Align the first wanted index to bit 0
-
-    // assuming the offset is at least 2-bytes aligned
-    pair >>= (16 - bitShift);
-
-    // Slice out the three 16-bit values
-    uint3 indices;
-    indices.x = (uint)((pair >> 32) & 0xffffu); // u0
-    indices.y = (uint)((pair >> 16) & 0xffffu); // u1
-    indices.z = (uint)((pair) & 0xffffu); // u2
-    return indices;
-}
-#else
 // Returns three consecutive 16-bit indices that start at offsetInBytes
 // offsetInBytes must be 2-byte aligned or 4-byte aligned
 //
@@ -399,12 +316,9 @@ uint3 ReadUint16Indices(in ByteAddressBuffer buf, in uint offsetInBytes)
     return indices;
 }
 
-#endif
-
 bool ReconstructSurfaceData(
     in uint triangleIndex,
     in uint geometryIndex,
-    in bool isFrontFacing,
     in float2 rayBarycentrics,
     in StructuredBuffer<GeometryData> geometryBuffer,
     in StructuredBuffer<MaterialData> materialBuffer,
@@ -427,8 +341,6 @@ bool ReconstructSurfaceData(
     uint3 indices = (geometry.indexBufferStride == 2) ? 
         ReadUint16Indices(ib, geometry.indexBufferOffset + triangleIndex * (geometry.indexBufferStride * 3)) :
         ReadUint32Indices(ib, geometry.indexBufferOffset + triangleIndex * (geometry.indexBufferStride * 3));
-
-    //surfaceSample.debugIndices = indices;
 
     ByteAddressBuffer positionBuffer = t_BindlessBuffers[NonUniformResourceIndex(geometry.attributeBufferIndices[GeometryAttribute_Position])];
     float3 rawPositions[3];
@@ -454,19 +366,6 @@ bool ReconstructSurfaceData(
     rawUvs[2] = asfloat(uvBuffer.Load2(geometry.attributeBufferOffsets[GeometryAttribute_TexCoords] + indices[2] * geometry.attributeBufferStrides[GeometryAttribute_TexCoords]));
     float2 uv = InterpolateBary(rawUvs, barycentrics);
 
-    ByteAddressBuffer tangentBuffer = t_BindlessBuffers[NonUniformResourceIndex(geometry.attributeBufferIndices[GeometryAttribute_Tangents])];
-    float4 rawTangents[3]; // float4 as last element is a length of bitangent
-    rawTangents[0] = asfloat(tangentBuffer.Load4(geometry.attributeBufferOffsets[GeometryAttribute_Tangents] + indices[0] * geometry.attributeBufferStrides[GeometryAttribute_Tangents]));
-    rawTangents[1] = asfloat(tangentBuffer.Load4(geometry.attributeBufferOffsets[GeometryAttribute_Tangents] + indices[1] * geometry.attributeBufferStrides[GeometryAttribute_Tangents]));
-    rawTangents[2] = asfloat(tangentBuffer.Load4(geometry.attributeBufferOffsets[GeometryAttribute_Tangents] + indices[2] * geometry.attributeBufferStrides[GeometryAttribute_Tangents]));
-    float4 tangent = normalize(InterpolateBary(rawTangents, barycentrics));
-    float3 bitangent = normalize(cross(surfaceSample.GN, tangent.xyz) * tangent.w);
-    
-    //if (isFrontFacing) // geometry is assumed to follow glTF spec and thus be counter-clockwise
-    //{
-
-    //}
-
     if (geometry.materialIndex == InvalidIndex)
         return false; // No material, dont do any further calculations, maybe in future support such no-material meshes
 
@@ -479,18 +378,19 @@ bool ReconstructSurfaceData(
     {
         surfaceSample.albedo = t_BindlessTextures[material.textureIndices[MaterialTexture_Albedo]].SampleLevel(s_MaterialSampler, uv, 0).rgb;
     }
-    
-    //if (!isFrontFacing)
-    //{
-    //    surfaceSample.GN = -surfaceSample.GN;
-    //    tangent = -tangent;
-    //    bitangent = -bitangent;
-    //}
 
     if (material.textureIndices[MaterialTexture_Normal] == InvalidIndex)
         surfaceSample.SN = surfaceSample.GN; // if no normal map then surface normal == geometry normal
     else
     {
+        ByteAddressBuffer tangentBuffer = t_BindlessBuffers[NonUniformResourceIndex(geometry.attributeBufferIndices[GeometryAttribute_Tangents])];
+        float4 rawTangents[3]; // float4 as last element is a length of bitangent
+        rawTangents[0] = asfloat(tangentBuffer.Load4(geometry.attributeBufferOffsets[GeometryAttribute_Tangents] + indices[0] * geometry.attributeBufferStrides[GeometryAttribute_Tangents]));
+        rawTangents[1] = asfloat(tangentBuffer.Load4(geometry.attributeBufferOffsets[GeometryAttribute_Tangents] + indices[1] * geometry.attributeBufferStrides[GeometryAttribute_Tangents]));
+        rawTangents[2] = asfloat(tangentBuffer.Load4(geometry.attributeBufferOffsets[GeometryAttribute_Tangents] + indices[2] * geometry.attributeBufferStrides[GeometryAttribute_Tangents]));
+        float4 tangent = normalize(InterpolateBary(rawTangents, barycentrics));
+        float3 bitangent = normalize(cross(surfaceSample.GN, tangent.xyz) * tangent.w);
+
         surfaceSample.SN = surfaceSample.GN; // if no normal map then surface normal == geometry normal
         Texture2D normalMap = t_BindlessTextures[material.textureIndices[MaterialTexture_Normal]];
         float3x3 TBN = float3x3(tangent.xyz, bitangent, surfaceSample.GN);
@@ -513,8 +413,6 @@ bool ReconstructSurfaceData(
     }
     return true;
 }
-
-#define FIRST_BOUNCE_GBUFFERS 0
 
 [shader("raygeneration")]
 void PathtracerRG()
@@ -615,12 +513,11 @@ void PathtracerRG()
         payload.primitiveIndex = ~0U;
         payload.geometryIndex = ~0U;
         payload.barycentrics = 0;
-        payload.hitKind = HIT_KIND_TRIANGLE_FRONT_FACE;
 
         int bounce = 1;
         for (; bounce < g_Global.nrcMaxPathVertices; ++bounce)
         {
-            TraceRay(SceneBVH, RAY_FLAG_NONE, 0xff,
+            TraceRay(SceneBVH, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff,
                 0, // RayContributionToHitGroupIndex
                 0, // MultiplierForGeometryContributionToHitGroupIndex
                 0, // MissShaderIndex
@@ -637,17 +534,10 @@ void PathtracerRG()
 
             // Decode material properties...  
             SurfaceSample surfaceSample;
-            if (!ReconstructSurfaceData(payload.primitiveIndex, payload.geometryIndex, payload.IsFrontFacing(), payload.barycentrics, t_GeometryData, t_MaterialData, surfaceSample))
+            if (!ReconstructSurfaceData(payload.primitiveIndex, payload.geometryIndex, payload.barycentrics, t_GeometryData, t_MaterialData, surfaceSample))
             {
                 NrcSetDebugPathTerminationReason(nrcPathState, NrcDebugPathTerminationReason::Unset);
                 break;
-            }
-
-            if (payload.geometryIndex == 46)
-            {
-                u_NebDebugQueryHitMap[loc] = uint(payload.primitiveIndex);
-                //u_NebDebugQueryThroughputMap[loc] = float4(surfaceSample.GN, 1.0);
-                u_NebDebugQueryThroughputMap[loc] = float4(float3(surfaceSample.debugIndices[0], surfaceSample.debugIndices[1], surfaceSample.debugIndices[2]), 1.0);
             }
 
             float hitT = payload.hitDistance;
@@ -677,7 +567,41 @@ void PathtracerRG()
             }
 
             // Account for emissives and evaluate NEE with RIS...
+            {
+                float2 u = Rand2(rng);
+    
+                float angle = u.x * 2.0f * PI;
+                float distance = sqrt(u.y);
 
+                float3 L = normalize(-g_Global.sunLightDirection);
+                float3 B = normalize(GetPerpendicularVector(L));
+                float3 T = cross(B, L);
+                float3 incidentVector;
+                incidentVector = L + (B * sin(angle) + T * cos(angle)) * g_Global.sunTanHalfAngle * distance;
+                incidentVector = normalize(incidentVector);
+
+                bool transitionSunRay = dot(surfaceSample.GN, incidentVector) <= 0.0f;
+                RayDesc sunRay;
+                sunRay.Origin = hitP + (transitionSunRay ? -surfaceSample.GN : surfaceSample.GN) * 1e-2;
+                sunRay.Direction = incidentVector;
+                sunRay.TMin = 0.001;
+                sunRay.TMax = TRACING_MAX_DISTANCE;
+
+                RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER> rq;
+                rq.TraceRayInline(SceneBVH, 0, 0xFF, sunRay);
+                while (rq.Proceed()) // the DXR spec says you must loop until it returns false.
+                {
+                }
+
+                if (rq.CommittedStatus() == COMMITTED_NOTHING)
+                {
+                    // process direct sun lighting
+                    u_NebDebugQueryHitMap[loc] = uint(bounce);
+                    float3 O = EvaluateDirectBRDF(loc, rng, surfaceSample, V, L) * g_Global.sunLightRadiance;
+                    radiance += O * throughput;
+                }
+            }
+            
             // Terminate loop early on last bounce (don't sample BRDF)
             if (bounce == g_Global.nrcMaxPathVertices - 1)
             {
@@ -699,17 +623,16 @@ void PathtracerRG()
             // Sample BRDF to generate the next ray and run MIS
             float3 rayDirection;
             float3 sampleWeight;
-            if (!EvaluateBRDF(loc, rng, surfaceSample, V, rayDirection, sampleWeight, pdf, diffuseProbability))
+            if (!EvaluateIndirectBRDF(loc, rng, surfaceSample, V, rayDirection, sampleWeight, pdf, diffuseProbability))
             {
                 //u_NebDebugQueryHitMap[loc] = uint(bounce);
                 NrcSetDebugPathTerminationReason(nrcPathState, NrcDebugPathTerminationReason::BRDFAbsorption);
                 break; // Ray was eaten by the surface :(
             }
 
-            bool transition = dot(surfaceSample.GN, rayDirection) <= 0.0f;
-            surfaceSample.GN = transition ? -surfaceSample.GN : surfaceSample.GN;
-            
-            ray.Origin = hitP + surfaceSample.GN * 1e-2;
+            // no transitions with this brdf
+            bool transitionRay = dot(surfaceSample.GN, rayDirection) <= 0.0f;
+            ray.Origin = hitP + (transitionRay ? -surfaceSample.GN : surfaceSample.GN) * 1e-2;
             ray.Direction = rayDirection;
             ray.TMin = 0.001;
             ray.TMax = TRACING_MAX_DISTANCE;
@@ -724,8 +647,8 @@ void PathtracerRG()
 
             NrcSetBrdfPdf(nrcPathState, pdf);
 
-            if (!NrcIsUpdateMode() && Luminance(throughput) < g_Global.throughputThreshold)
-                break;
+            //if (!NrcIsUpdateMode() && Luminance(throughput) < g_Global.throughputThreshold)
+            //    break;
         }
 
         //u_NebDebugQueryThroughputMap[loc] = float4(throughput, 1.0);
@@ -749,5 +672,4 @@ void PathtracerCH(
     payload.primitiveIndex = PrimitiveIndex();
     payload.geometryIndex = GeometryIndex();
     payload.barycentrics = attrib.uv;
-    payload.hitKind = HitKind();
 }

@@ -99,7 +99,7 @@ namespace Neb
         nrcContextSettings.requestReset = ImGui::Button("Reset NRC");
         nrcContextSettings.frameDimensions = { m_width, m_height };
 
-        nrcContextSettings.trainingDimensions = nrc::ComputeIdealTrainingDimensions(nrcContextSettings.frameDimensions, 0);
+        nrcContextSettings.trainingDimensions = nrc::ComputeIdealTrainingDimensions(nrcContextSettings.frameDimensions, 4);
         nrcContextSettings.maxPathVertices = m_globalIlluminationUI.nrcMaxPathVertices;
         nrcContextSettings.samplesPerPixel = m_globalIlluminationUI.giSamplesPerPixel;
 
@@ -124,7 +124,7 @@ namespace Neb
         ImGui::Begin("Sun settings");
         ImGui::SliderFloat("Sun diameter", &m_sceneSunUI.roughDiameter, 0.0f, 8.0f);
         ImGui::DragFloat3("Sun direction", &m_sceneSunUI.direction.x, 0.02f, -1.0f, 1.0f);
-        ImGui::SliderFloat3("Sun radiance", &m_sceneSunUI.radiance.x, 0.0f, 8.0f);
+        ImGui::SliderFloat3("Sun radiance", &m_sceneSunUI.radiance.x, 0.0f, 32.0f);
         ImGui::End();
     }
 
@@ -309,6 +309,7 @@ namespace Neb
                                                                  .skyColor = m_globalIlluminationUI.skyColor,
                                                                  .sunLightDirection = m_sceneSunUI.direction,
                                                                  .sunLightRadiance = m_sceneSunUI.radiance,
+                                                                 .sunTanHalfAngle = tanf(ToRadians(m_sceneSunUI.roughDiameter * 0.5f)),
                                                                  .throughputThreshold = m_globalIlluminationUI.throughputThreshold
                                                              });
         }
