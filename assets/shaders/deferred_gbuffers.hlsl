@@ -63,9 +63,9 @@ SamplerState StaticSampler : register(s0);
 struct PSOutput
 {
     float3 albedo : SV_Target0;
-    float4 normal : SV_Target1;
-    float2 roughnessMetalness : SV_Target2;
-    float4 worldPos : SV_Target3;
+    float2 roughnessMetalness : SV_Target1;
+    float4 worldPos : SV_Target2;
+    float4 normal : SV_Target3;
 };
 
 PSOutput PSMain(VSOutput input)

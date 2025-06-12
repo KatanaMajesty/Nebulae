@@ -44,13 +44,13 @@ RWTexture2D<uint>   u_NebDebugQueryHitMap : register(u1, space1);
 enum GbufferSlot
 {
     Gbuffer_Albedo = 0,
-    Gbuffer_Normal = 1,
-    Gbuffer_RoughnessMetalness = 2,
-    Gbuffer_WorldPos = 3,
+    Gbuffer_RoughnessMetalness = 1,
+    Gbuffer_WorldPos = 2,
     Gbuffer_NumSlots,
 };
 
 Texture2D t_GbufferTextures[Gbuffer_NumSlots] : register(t0, space1);
+Texture2D t_GbufferNormals : register(t3, space1);
 Texture2D t_SceneDepth : register(t0, space0);
 Texture2D<uint> t_SceneStencil : register(t1, space0);
 RaytracingAccelerationStructure SceneBVH : register(t2, space0);
@@ -153,8 +153,6 @@ struct SurfaceSample
     float3 albedo;
     float roughness;
     float metalness;
-
-    uint3 debugIndices;
 };
 
 struct BRDFData
@@ -197,7 +195,6 @@ BRDFData PrepareBRDFData(float3 N, float3 L, float3 V, in SurfaceSample surfaceS
     
     float3 H = data.H;
     data.LdotN = dot(L, N);
-    data.LdotH = dot(L, H);
     data.VdotH = saturate(dot(V, H));
     data.VdotN = dot(V, N);
     data.NdotH = dot(N, H);
@@ -217,10 +214,6 @@ float3 EvaluateDirectBRDF(in uint2 loc,
 {
     float3 SN = surfaceSample.SN;
     BRDFData data = PrepareBRDFData(SN, L, V, surfaceSample, Rand2(rng));
-
-    // Ignore V and L rays "below" the hemisphere
-    if (data.VdotN < 0.0 || data.LdotN < 0.0)
-        return 0.0;
 
     // Eval specular and diffuse BRDFs
     float3 F0 = Brdf_GetSpecularF0(surfaceSample.albedo, surfaceSample.metalness);
@@ -250,11 +243,6 @@ bool EvaluateIndirectBRDF(in uint2 loc,
     diffuseProbability = 0.0;
 
     float3 SN = normalize(surfaceSample.SN);
-    if (dot(SN, V) <= 0.0)
-    {
-        // some rays will terminate here
-        return false; 
-    }
 
     // (local cosine hemisphere space is oriented so that its positive Z axis points along the shading normal)
     float3 L = CosineSampleHemisphereSurfaceAligned(Rand2(rng), SN, pdf); // randomly sample ray direction from the surface hemisphere
@@ -265,15 +253,7 @@ bool EvaluateIndirectBRDF(in uint2 loc,
     diffuseProbability = (1.0 - Brdf_GetSpecularProbability(saturate(data.VdotN), data.specularF0, surfaceSample.albedo));
     //diffuseProbability = (1.0 - Brdf_FresnelSchlick(data.specularF0, data.VdotN));
     sampleWeight = data.diffuseReflectance;
-
-    // Prevent tracing direction with no contribution
     rayDirection = L;
-    //if (Luminance(sampleWeight) == 0.0f)
-    //    return false;
-
-    // Prevent tracing direction "under" the hemisphere (behind the triangle)
-    //if (dot(surfaceSample.GN, rayDirection) <= 0.0f)
-    //    return false;
 
     return true;
 }
@@ -441,7 +421,7 @@ void PathtracerRG()
 
     float3 albedo = t_GbufferTextures[Gbuffer_Albedo].Load(float3(loc, 0)).xyz;
     float3 worldPos = t_GbufferTextures[Gbuffer_WorldPos].Load(float3(loc, 0)).xyz;
-    float4 encodedN = t_GbufferTextures[Gbuffer_Normal].Load(float3(loc, 0));
+    float4 encodedN = t_GbufferNormals.Load(float3(loc, 0));
     float3 GN, SN;
     UnpackOct16Normals(encodedN, GN, SN);
     float2 roughnessMetalness = t_GbufferTextures[Gbuffer_RoughnessMetalness].Load(float3(loc, 0)).xy;
@@ -449,9 +429,6 @@ void PathtracerRG()
     float metalness = roughnessMetalness.y;
 
     float3 V = g_Global.cameraWorldPos - worldPos;
-
-    u_NebDebugQueryThroughputMap[loc] = float4(0.0, 0.0, 0.0, 1.0);
-    u_NebDebugQueryHitMap[loc] = 0;
 
     const uint samplesPerPixel = NrcIsUpdateMode() ? 1 : g_NrcConstants.samplesPerPixel;
     for (int sampleIndex = 0; sampleIndex < samplesPerPixel; ++sampleIndex)
@@ -545,11 +522,11 @@ void PathtracerRG()
             V = normalize(-ray.Direction);
 
             // Flip normals towards the incident ray direction (needed for backfacing triangles)
-            if (dot(surfaceSample.GN, V) < 0.0)
-                surfaceSample.GN = -surfaceSample.GN;
-            
-            if (dot(surfaceSample.SN, V) < 0.0)
-                surfaceSample.SN = -surfaceSample.SN;
+            //if (dot(surfaceSample.GN, V) < 0.0)
+            //    surfaceSample.GN = -surfaceSample.GN;
+            //
+            //if (dot(surfaceSample.SN, V) < 0.0)
+            //    surfaceSample.SN = -surfaceSample.SN;
 
             NrcSurfaceAttributes sampledSurfaceAttributes; // Passed to NrcUpdateOnHit
             sampledSurfaceAttributes.encodedPosition = NrcEncodePosition(hitP, g_NrcConstants); // Use NrcEncodePosition
@@ -568,8 +545,8 @@ void PathtracerRG()
 
             // Account for emissives and evaluate NEE with RIS...
             {
-                float2 u = Rand2(rng);
     
+                float2 u = Rand2(rng);
                 float angle = u.x * 2.0f * PI;
                 float distance = sqrt(u.y);
 
@@ -587,16 +564,12 @@ void PathtracerRG()
                 sunRay.TMin = 0.001;
                 sunRay.TMax = TRACING_MAX_DISTANCE;
 
-                RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER> rq;
+                RayQuery < RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER > rq;
                 rq.TraceRayInline(SceneBVH, 0, 0xFF, sunRay);
-                while (rq.Proceed()) // the DXR spec says you must loop until it returns false.
-                {
-                }
+                rq.Proceed(); // the DXR spec says you must loop until it returns false.
 
                 if (rq.CommittedStatus() == COMMITTED_NOTHING)
                 {
-                    // process direct sun lighting
-                    u_NebDebugQueryHitMap[loc] = uint(bounce);
                     float3 O = EvaluateDirectBRDF(loc, rng, surfaceSample, V, L) * g_Global.sunLightRadiance;
                     radiance += O * throughput;
                 }
@@ -631,8 +604,7 @@ void PathtracerRG()
             }
 
             // no transitions with this brdf
-            bool transitionRay = dot(surfaceSample.GN, rayDirection) <= 0.0f;
-            ray.Origin = hitP + (transitionRay ? -surfaceSample.GN : surfaceSample.GN) * 1e-2;
+            ray.Origin = hitP + surfaceSample.GN * 1e-2;
             ray.Direction = rayDirection;
             ray.TMin = 0.001;
             ray.TMax = TRACING_MAX_DISTANCE;
@@ -646,12 +618,8 @@ void PathtracerRG()
             }
 
             NrcSetBrdfPdf(nrcPathState, pdf);
-
-            //if (!NrcIsUpdateMode() && Luminance(throughput) < g_Global.throughputThreshold)
-            //    break;
         }
 
-        //u_NebDebugQueryThroughputMap[loc] = float4(throughput, 1.0);
         NrcWriteFinalPathInfo(ctx, nrcPathState, throughput, radiance);
     }
 }

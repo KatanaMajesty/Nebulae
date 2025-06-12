@@ -51,7 +51,7 @@ namespace Neb
             .device = &nri::NRIDevice::Get(),
             .numInflightFrames = NumInflightFrames,
             .renderTargetFormat = m_swapchain.GetFormat(),
-            .depthStencilFormat = m_deferredRenderer.GetDepthStencilBuffer().GetFormat(),
+            .depthStencilFormat = DXGI_FORMAT_D24_UNORM_S8_UINT,
         });
 
         return TRUE;
@@ -124,6 +124,12 @@ namespace Neb
                 [this]
                 {
                     m_deferredRenderer.SubmitCommandsGIPathtrace();
+                });
+
+            ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex,
+                [this]
+                {
+                    m_deferredRenderer.SubmitCommandsSVGFDenoising();
                 });
 
             ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex,

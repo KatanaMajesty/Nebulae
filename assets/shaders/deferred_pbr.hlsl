@@ -24,13 +24,13 @@ ConstantBuffer<LightEnvironment> cbLightEnvironment : register(b1);
 enum GbufferSlot
 {
     Gbuffer_Albedo = 0,
-    Gbuffer_Normal = 1,
-    Gbuffer_RoughnessMetalness = 2,
-    Gbuffer_WorldPos = 3,
+    Gbuffer_RoughnessMetalness = 1,
+    Gbuffer_WorldPos = 2,
     Gbuffer_NumSlots,
 };
 
 Texture2D                       GbufferTextures[Gbuffer_NumSlots]   : register(t0, space1);
+Texture2D                       GbufferNormals                      : register(t3, space1);
 Texture2D                       SceneDepth                          : register(t0, space0);
 Texture2D<uint>                 SceneStencil                        : register(t1, space0);
 RaytracingAccelerationStructure SceneTLAS                           : register(t2, space0);
@@ -52,7 +52,7 @@ void CSMain(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID)
     float2 roughnessMetalness = GbufferTextures[Gbuffer_RoughnessMetalness].Load(p).rg;
     
     // As of 16.02.2024 -> .xy - geometry normal packed, .zw - surface normal packed
-    float4 normals = GbufferTextures[Gbuffer_Normal].Load(p);
+    float4 normals = GbufferNormals.Load(p);
     float3 GN = Oct16_FastUnpack(normals.xy);
     float3 SN = Oct16_FastUnpack(normals.zw);
     float3 V = normalize(eye - worldPos);

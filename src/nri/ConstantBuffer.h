@@ -59,4 +59,25 @@ namespace Neb::nri
         DescriptorHeapAllocation m_descriptorAllocation;
     };
 
+    template<typename T>
+    struct ConstantBufferWrap
+    {
+        void Init(const ConstantBufferDesc& desc)
+        {
+            cb.Init(desc);
+        }
+
+        void Upload(size_t index)
+        {
+            std::memcpy(cb.GetMapping<T>(index), &data, sizeof(T));
+            cb.Upload(index, data);
+        }
+
+        T& GetData() { return data; }
+        const T& GetData() const { return data; }
+
+        ConstantBuffer cb;
+        T data;
+    };
+
 } // Neb::nri namespace
