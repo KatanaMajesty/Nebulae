@@ -235,6 +235,13 @@ namespace Neb
             }
         }
         ImGui::End();
+
+        ImGui::Begin("SVGF denoising");
+        SVGFDenoiser::SVGFTemporalConstants& temporal = m_svgfDenoiser.GetTemporalConstants();
+        {
+            ImGui::SliderFloat("Temporal Alpha", &temporal.alpha, 1e-4f, 1.0f);
+        }
+        ImGui::End();
     }
 
     void DeferredRenderer::SubmitCommandsGbuffer()
@@ -584,34 +591,10 @@ namespace Neb
                 m_resetHistory = false;
                 svgf.ResetHistory(commandList);
             }
-
-            std::array barriers = {
-                //CD3DX12_RESOURCE_BARRIER::UAV(GetRadianceOutput() /*same as svgf.GetCurrentRadianceTexture()*/),
-                // transition current radiance & history radiance
-                CD3DX12_RESOURCE_BARRIER::Transition(svgf.GetHistoryRadianceTexture(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
-                CD3DX12_RESOURCE_BARRIER::Transition(svgf.GetCurrentRadianceTexture(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-                //  Depth & History depth will already be in SRV state from previous passes
-                //  Normals will also be in SRV state as they are read in pathtracer beforehand
-                CD3DX12_RESOURCE_BARRIER::Transition(svgf.GetCurrentMomentsTexture(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-                CD3DX12_RESOURCE_BARRIER::Transition(svgf.GetHistoryMomentsTexture(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
-                CD3DX12_RESOURCE_BARRIER::Transition(svgf.GetVarianceTexture(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-            };
-            commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
         }
         // SVGF
         svgf.SubmitTemporalAccumulation(commandList);
-        // Post-SVGF barriers, end of frame!
-        {
-            std::array barriers = {
-                // transition everything back for now
-                CD3DX12_RESOURCE_BARRIER::Transition(svgf.GetHistoryRadianceTexture(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON),
-                CD3DX12_RESOURCE_BARRIER::Transition(svgf.GetCurrentRadianceTexture(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON),
-                CD3DX12_RESOURCE_BARRIER::Transition(svgf.GetCurrentMomentsTexture(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON),
-                CD3DX12_RESOURCE_BARRIER::Transition(svgf.GetHistoryMomentsTexture(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON),
-                CD3DX12_RESOURCE_BARRIER::Transition(svgf.GetVarianceTexture(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON),
-            };
-            commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
-        }
+        svgf.SubmitATrousComputeWavelet(commandList);
     }
 
     void DeferredRenderer::SubmitCommandsHDRTonemapping(ID3D12GraphicsCommandList4* commandList)
@@ -1331,7 +1314,10 @@ namespace Neb
                 .ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D,
                 .Texture2D = D3D12_TEX2D_UAV()
             };
-            device.GetD3D12Device()->CreateUnorderedAccessView(m_NRCDebugQueryThroughputMap.Get(), nullptr, &uavDesc, m_NRCDebugBuffersHeap.CpuAt(NRC_NEB_DEBUG_BUFFER_QUERY_THROUGHPUT_MAP));
+            device.GetD3D12Device()->CreateUnorderedAccessView(m_NRCDebugQueryThroughputMap.Get(),
+                nullptr,
+                &uavDesc,
+                m_NRCDebugBuffersHeap.CpuAt(NRC_NEB_DEBUG_BUFFER_QUERY_THROUGHPUT_MAP));
         }
         
         {

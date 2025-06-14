@@ -69,17 +69,25 @@ namespace Neb
         UINT width = m_width;
         UINT height = m_height;
         {
-            static float alpha = 0.9f;
-            ImGui::Begin("SVGF");
-            ImGui::SliderFloat("Alpha", &alpha, 1e-4f, 1.0f);
-            SVGFTemporalConstants temporal = {
-                .resolution = { width, height },
-                .depthSigma = 0.002f,
-                .alpha = alpha,       // tweakable stability var
-                .varianceEps = 1e-4f, // small value
-            };
-            ImGui::End();
+            m_temporalConstants.resolution[0] = width;
+            m_temporalConstants.resolution[1] = height;
             
+            // Pre-barriers
+            {
+                std::array barriers = {
+                    // CD3DX12_RESOURCE_BARRIER::UAV(GetRadianceOutput() /*same as svgf.GetCurrentRadianceTexture()*/),
+                    // transition current radiance & history radiance
+                    CD3DX12_RESOURCE_BARRIER::Transition(GetHistoryRadianceTexture(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+                    CD3DX12_RESOURCE_BARRIER::Transition(GetCurrentRadianceTexture(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+                    //  Depth & History depth will already be in SRV state from previous passes
+                    //  Normals will also be in SRV state as they are read in pathtracer beforehand
+                    CD3DX12_RESOURCE_BARRIER::Transition(GetCurrentMomentsTexture(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+                    CD3DX12_RESOURCE_BARRIER::Transition(GetHistoryMomentsTexture(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+                    CD3DX12_RESOURCE_BARRIER::Transition(GetVarianceTexture(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+                };
+                commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
+            }
+
             commandList->SetPipelineState(m_svgfTemporalPSO.Get());
             commandList->SetComputeRootSignature(m_svgfTemporalRS.GetD3D12RootSignature());
             // SVGF_TEMPORAL_ROOT_CONSTANTS = 0,
@@ -93,7 +101,7 @@ namespace Neb
             // SVGF_TEMPORAL_ROOT_MOMENT_CURRENT_UAV,
             // SVGF_TEMPORAL_ROOT_VARIANCE_UAV,
             // SVGF_TEMPORAL_ROOT_NUM_ROOTS,
-            commandList->SetComputeRoot32BitConstants(SVGF_TEMPORAL_ROOT_CONSTANTS, sizeof(SVGFTemporalConstants) / sizeof(UINT), &temporal, 0);
+            commandList->SetComputeRoot32BitConstants(SVGF_TEMPORAL_ROOT_CONSTANTS, sizeof(SVGFTemporalConstants) / sizeof(UINT), &m_temporalConstants, 0);
             commandList->SetComputeRootDescriptorTable(SVGF_TEMPORAL_ROOT_RADIANCE_HISTORY_SRV, GetHistoryRadianceSrv());
             commandList->SetComputeRootDescriptorTable(SVGF_TEMPORAL_ROOT_DEPTH_CURRENT_SRV, GetCurrentDepthSrv());
             commandList->SetComputeRootDescriptorTable(SVGF_TEMPORAL_ROOT_DEPTH_HISTORY_SRV, GetHistoryDepthSrv());
@@ -104,12 +112,89 @@ namespace Neb
             commandList->SetComputeRootDescriptorTable(SVGF_TEMPORAL_ROOT_MOMENT_CURRENT_UAV, GetCurrentMomentUav());
             commandList->SetComputeRootDescriptorTable(SVGF_TEMPORAL_ROOT_VARIANCE_UAV, GetVarianceUav());
             commandList->Dispatch(width / 8, height / 8, 1);
+            // Post-SVGF barriers
+            {
+                std::array barriers = {
+                    //CD3DX12_RESOURCE_BARRIER::UAV(GetCurrentRadianceTexture()),
+                    // Transition resources unused in A-Trous to their final state
+                    CD3DX12_RESOURCE_BARRIER::Transition(GetHistoryRadianceTexture(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON),
+                    CD3DX12_RESOURCE_BARRIER::Transition(GetHistoryMomentsTexture(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON),
+                    CD3DX12_RESOURCE_BARRIER::Transition(GetCurrentMomentsTexture(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON),
+                    CD3DX12_RESOURCE_BARRIER::Transition(GetCurrentRadianceTexture(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON),
+                    CD3DX12_RESOURCE_BARRIER::Transition(GetVarianceTexture(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON),
+                };
+                commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
+            }
         }
     }
 
-    void SVGFDenoiser::SubmitATrousComputeWavelet()
+    void SVGFDenoiser::SubmitATrousComputeWavelet(ID3D12GraphicsCommandList4* commandList)
     {
         NEB_ASSERT(IsInitialized());
+
+        UINT width = m_width;
+        UINT height = m_height;
+        {
+            static constexpr float kSigmaColor = 4.0f / 255.0f;
+            static constexpr float kSigmaNormal = 128.0f;
+            static constexpr float kSigmaDepth = 0.002f; // 2 mm eye-space
+            uint32_t step = 1;
+
+            uint32_t srcIndex = GetCurrentResourceIndex();
+            uint32_t dstIndex = GetHistoryResourceIndex();
+            {
+                auto varianceBarrier = CD3DX12_RESOURCE_BARRIER::Transition(GetVarianceTexture(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                commandList->ResourceBarrier(1, &varianceBarrier);
+            }
+
+            for (uint32_t i = 0; i < NumAtrousPasses; ++i)
+            {
+                // only change non-tweakable params. Tweakable ones are defined via UI
+                m_aTrousConstants.resolution[0] = width;
+                m_aTrousConstants.resolution[1] = height;
+                m_aTrousConstants.step = static_cast<float>(step);
+                // at the beginning of each loop transition radiance src/uav resources to the correct state
+                {
+                    std::array barriers = {
+                        CD3DX12_RESOURCE_BARRIER::UAV(GetRadianceTexture(srcIndex)),
+                        CD3DX12_RESOURCE_BARRIER::Transition(GetRadianceTexture(srcIndex), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+                        CD3DX12_RESOURCE_BARRIER::Transition(GetRadianceTexture(dstIndex), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+                    };
+                    commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
+                }
+                commandList->SetPipelineState(m_svgfATrousPSO.Get());
+                commandList->SetComputeRootSignature(m_svgfATrousRS.GetD3D12RootSignature());
+                // SVGF_ATROUS_ROOT_CONSTANTS = 0,
+                // SVGF_ATROUS_ROOT_RADIANCE_SRV,
+                // SVGF_ATROUS_ROOT_VARIANCE_SRV,
+                // SVGF_ATROUS_ROOT_DEPTH_SRV,
+                // SVGF_ATROUS_ROOT_NORMAL_SRV,
+                // SVGF_ATROUS_ROOT_OUTPUT,
+                // SVGF_ATROUS_ROOT_NUM_ROOTS,
+                commandList->SetComputeRoot32BitConstants(SVGF_ATROUS_ROOT_CONSTANTS, sizeof(SVGFAtrousConstants) / sizeof(UINT), &m_aTrousConstants, 0);
+                commandList->SetComputeRootDescriptorTable(SVGF_ATROUS_ROOT_RADIANCE_SRV, GetRadianceSrv(srcIndex));
+                commandList->SetComputeRootDescriptorTable(SVGF_ATROUS_ROOT_VARIANCE_SRV, GetVarianceSrv());
+                commandList->SetComputeRootDescriptorTable(SVGF_ATROUS_ROOT_DEPTH_SRV, GetCurrentDepthSrv());
+                commandList->SetComputeRootDescriptorTable(SVGF_ATROUS_ROOT_NORMAL_SRV, GetCurrentNormalSrv());
+                commandList->SetComputeRootDescriptorTable(SVGF_ATROUS_ROOT_OUTPUT, GetRadianceUav(dstIndex));
+                commandList->Dispatch(width / 8, height / 8, 1);
+                {
+                    std::array barriers = {
+                        CD3DX12_RESOURCE_BARRIER::UAV(GetRadianceTexture(srcIndex)),
+                        CD3DX12_RESOURCE_BARRIER::Transition(GetRadianceTexture(srcIndex), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON),
+                        CD3DX12_RESOURCE_BARRIER::Transition(GetRadianceTexture(dstIndex), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON),
+                    };
+                    commandList->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
+                }
+                step <<= 1;
+                std::swap(srcIndex, dstIndex);
+            }
+            NEB_ASSERT(srcIndex == GetCurrentResourceIndex());
+            {
+                auto varianceBarrier = CD3DX12_RESOURCE_BARRIER::Transition(GetVarianceTexture(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+                commandList->ResourceBarrier(1, &varianceBarrier);
+            }
+        }
     }
 
     void SVGFDenoiser::InitSVGFShadersAndPSO()
@@ -165,10 +250,20 @@ namespace Neb
                 &psoDesc, IID_PPV_ARGS(m_svgfTemporalPSO.ReleaseAndGetAddressOf())));
         }
 
+        // SVGF_ATROUS_ROOT_CONSTANTS = 0,
+        // SVGF_ATROUS_ROOT_RADIANCE_SRV,
+        // SVGF_ATROUS_ROOT_VARIANCE_SRV,
+        // SVGF_ATROUS_ROOT_DEPTH_SRV,
+        // SVGF_ATROUS_ROOT_NORMAL_SRV,
+        // SVGF_ATROUS_ROOT_OUTPUT,
+        // SVGF_ATROUS_ROOT_NUM_ROOTS,
         m_svgfATrousRS = nri::RootSignature(SVGF_ATROUS_ROOT_NUM_ROOTS);
-        m_svgfATrousRS.AddParam32BitConstants(SVGF_ATROUS_ROOT_CONSTANTS, 6, 0);
-        m_svgfATrousRS.AddParamDescriptorTable(SVGF_ATROUS_ROOT_SRV, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 4, /*register*/ 0, /*space*/ 0));
-        m_svgfATrousRS.AddParamDescriptorTable(SVGF_ATROUS_ROOT_OUTPUT, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 0, /*space*/ 0));
+        m_svgfATrousRS.AddParam32BitConstants(SVGF_ATROUS_ROOT_CONSTANTS, sizeof(SVGFAtrousConstants) / sizeof(uint32_t), 0);
+        m_svgfATrousRS.AddParamDescriptorTable(SVGF_ATROUS_ROOT_RADIANCE_SRV,   CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 0, /*space*/ 0));
+        m_svgfATrousRS.AddParamDescriptorTable(SVGF_ATROUS_ROOT_VARIANCE_SRV,   CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 1, /*space*/ 0));
+        m_svgfATrousRS.AddParamDescriptorTable(SVGF_ATROUS_ROOT_DEPTH_SRV,      CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 2, /*space*/ 0));
+        m_svgfATrousRS.AddParamDescriptorTable(SVGF_ATROUS_ROOT_NORMAL_SRV,     CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 3, /*space*/ 0));
+        m_svgfATrousRS.AddParamDescriptorTable(SVGF_ATROUS_ROOT_OUTPUT,         CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 0, /*space*/ 0));
         nri::ThrowIfFalse(m_svgfATrousRS.Init(&device), "failed to init SVGF A-Trous compute root sig");
         {
             // A-Trous PSO
@@ -239,7 +334,7 @@ namespace Neb
         for (uint32_t i = 0; i < NumPingPongResources; ++i)
         {
             m_radiance[i] = CreateArrayResource(width, height, m_radianceFormat, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, DXGI_FORMAT_UNKNOWN, 1);
-            NEB_SET_HANDLE_NAME(m_radiance[i], "Radiance array {}", i);
+            NEB_SET_HANDLE_NAME(m_radiance[i], "Radiance {}", i);
         }
         m_normals = CreateArrayResource(width, height, m_normalFormat, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
         NEB_SET_HANDLE_NAME(m_normals, "Normal GBuffer array");
@@ -253,6 +348,9 @@ namespace Neb
         }
         m_variance = CreateArrayResource(width, height, m_varianceFormat, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, DXGI_FORMAT_UNKNOWN, 1);
         NEB_SET_HANDLE_NAME(m_variance, "Variance texture");
+
+        m_denoisedOutput = CreateArrayResource(width, height, m_denoisedFormat, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, DXGI_FORMAT_UNKNOWN, 1);
+        NEB_SET_HANDLE_NAME(m_denoisedOutput, "SVGF-denoised output texture");
     }
 
     void SVGFDenoiser::InitSVGFDescriptors()
@@ -383,11 +481,22 @@ namespace Neb
         }
 
         // 0 srv, 1 uav (only 1 resource, no ping-pong)
-        m_varianceSrvUavHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptors(2); 
-        auto srvDesc = CreateSRV(m_varianceFormat);
-        auto uavDesc = CreateUAV(m_varianceFormat);
-        device.GetD3D12Device()->CreateShaderResourceView(GetVarianceTexture(), &srvDesc, m_varianceSrvUavHeap.CpuAt(0));
-        device.GetD3D12Device()->CreateUnorderedAccessView(GetVarianceTexture(), nullptr, &uavDesc, m_varianceSrvUavHeap.CpuAt(1));
+        {
+            m_varianceSrvUavHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptors(2);
+            auto srvDesc = CreateSRV(m_varianceFormat);
+            auto uavDesc = CreateUAV(m_varianceFormat);
+            device.GetD3D12Device()->CreateShaderResourceView(GetVarianceTexture(), &srvDesc, m_varianceSrvUavHeap.CpuAt(0));
+            device.GetD3D12Device()->CreateUnorderedAccessView(GetVarianceTexture(), nullptr, &uavDesc, m_varianceSrvUavHeap.CpuAt(1));
+        }
+        
+        // 0 srv, 1 uav (only 1 resource, no ping-pong)
+        {
+            m_denoisedSrvUavHeap = device.GetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV).AllocateDescriptors(2);
+            auto srvDesc = CreateSRV(m_denoisedFormat);
+            auto uavDesc = CreateUAV(m_denoisedFormat);
+            device.GetD3D12Device()->CreateShaderResourceView(GetDenoisedTexture(), &srvDesc, m_denoisedSrvUavHeap.CpuAt(0));
+            device.GetD3D12Device()->CreateUnorderedAccessView(GetDenoisedTexture(), nullptr, &uavDesc, m_denoisedSrvUavHeap.CpuAt(1));
+        }
     }
 
 } // Neb namespace

@@ -35,7 +35,10 @@ namespace Neb
         ID3D12Resource* GetCurrentMomentsTexture() const { return GetMomentsTexture(GetCurrentResourceIndex()); }
         ID3D12Resource* GetHistoryMomentsTexture() const { return GetMomentsTexture(GetHistoryResourceIndex()); }
         ID3D12Resource* GetVarianceTexture() const { return m_variance.Get(); }
+        ID3D12Resource* GetDenoisedTexture() const { return m_denoisedOutput.Get(); }
 
+        D3D12_GPU_DESCRIPTOR_HANDLE GetRadianceUav(uint32_t index) const { return m_radianceSrvUavHeap.GpuAt(FirstRadianceUavIndex + index); }
+        D3D12_GPU_DESCRIPTOR_HANDLE GetRadianceSrv(uint32_t index) const { return m_radianceSrvUavHeap.GpuAt(FirstRadianceSrvIndex + index); }
         D3D12_GPU_DESCRIPTOR_HANDLE GetCurrentRadianceUav() const { return m_radianceSrvUavHeap.GpuAt(FirstRadianceUavIndex + GetCurrentResourceIndex()); }
         D3D12_GPU_DESCRIPTOR_HANDLE GetCurrentRadianceSrv() const { return m_radianceSrvUavHeap.GpuAt(FirstRadianceSrvIndex + GetCurrentResourceIndex()); }
         D3D12_GPU_DESCRIPTOR_HANDLE GetHistoryRadianceSrv() const { return m_radianceSrvUavHeap.GpuAt(FirstRadianceSrvIndex + GetHistoryResourceIndex()); }
@@ -59,13 +62,35 @@ namespace Neb
 
         D3D12_GPU_DESCRIPTOR_HANDLE GetVarianceUav() const { return m_varianceSrvUavHeap.GpuAt(1); } // 0 srv, 1 uav (only 1 resource, no ping-pong)
         D3D12_GPU_DESCRIPTOR_HANDLE GetVarianceSrv() const { return m_varianceSrvUavHeap.GpuAt(0); } // 0 srv, 1 uav (only 1 resource, no ping-pong)
+        
+        D3D12_GPU_DESCRIPTOR_HANDLE GetDenoisedUav() const { return m_denoisedSrvUavHeap.GpuAt(1); } // 0 srv, 1 uav (only 1 resource, no ping-pong)
+        D3D12_GPU_DESCRIPTOR_HANDLE GetDenoisedSrv() const { return m_denoisedSrvUavHeap.GpuAt(0); } // 0 srv, 1 uav (only 1 resource, no ping-pong)
 
         DXGI_FORMAT GetNormalFormat() const { return m_normalFormat; }
         DXGI_FORMAT GetRadianceFormat() const { return m_radianceFormat; }
 
         void ResetHistory(ID3D12GraphicsCommandList4* commandList);
         void SubmitTemporalAccumulation(ID3D12GraphicsCommandList4* commandList);
-        void SubmitATrousComputeWavelet();
+        void SubmitATrousComputeWavelet(ID3D12GraphicsCommandList4* commandList);
+
+        struct SVGFTemporalConstants
+        {
+            uint32_t resolution[2];
+            float depthSigma = 0.002f;
+            float alpha = 0.9f;        // tweakable stability var
+            float varianceEps = 1e-4f; // small value
+        };
+        SVGFTemporalConstants& GetTemporalConstants() { return m_temporalConstants; }
+
+        struct SVGFAtrousConstants
+        {
+            uint32_t resolution[2];
+            float step;                     // 1, 2, 4, … (powers of 2)
+            float phiColor = 4.0f / 255.0f; // nominal constant (k)
+            float phiNormal = 128.0f;
+            float phiDepth = 0.002f; // 2 mm eye-space
+        };
+        SVGFAtrousConstants& GetATrousConstants() { return m_aTrousConstants; }
 
     private:
         // Spatio-temporal variance filtering for pathtracer
@@ -74,17 +99,6 @@ namespace Neb
         UINT m_height = 0;
 
         void InitSVGFShadersAndPSO();
-
-        enum ESVGFATrousRoots
-        {
-            SVGF_ATROUS_ROOT_CONSTANTS = 0,
-            SVGF_ATROUS_ROOT_SRV,
-            SVGF_ATROUS_ROOT_OUTPUT,
-            SVGF_ATROUS_ROOT_NUM_ROOTS,
-        };
-        nri::Shader m_csATrousSVGF;
-        nri::RootSignature m_svgfATrousRS;
-        nri::Rc<ID3D12PipelineState> m_svgfATrousPSO;
 
         enum ESVGFTemporalRoots
         {
@@ -103,7 +117,20 @@ namespace Neb
         nri::Shader m_csTemporalSVGF;
         nri::RootSignature m_svgfTemporalRS;
         nri::Rc<ID3D12PipelineState> m_svgfTemporalPSO;
-        
+        enum ESVGFATrousRoots
+        {
+            SVGF_ATROUS_ROOT_CONSTANTS = 0,
+            SVGF_ATROUS_ROOT_RADIANCE_SRV,
+            SVGF_ATROUS_ROOT_VARIANCE_SRV,
+            SVGF_ATROUS_ROOT_DEPTH_SRV,
+            SVGF_ATROUS_ROOT_NORMAL_SRV,
+            SVGF_ATROUS_ROOT_OUTPUT,
+            SVGF_ATROUS_ROOT_NUM_ROOTS,
+        };
+        nri::Shader m_csATrousSVGF;
+        nri::RootSignature m_svgfATrousRS;
+        nri::Rc<ID3D12PipelineState> m_svgfATrousPSO;
+
         void InitSVGFResources();
 
         // Current index represents current frame's resource index (0 or 1)
@@ -118,6 +145,7 @@ namespace Neb
         nri::Rc<ID3D12Resource> m_normals;          // Resources are created as 2D textures with 2 slices
         nri::Rc<ID3D12Resource> m_moments[NumPingPongResources]; // For some reason SRV/UAV on different slices upsets the compiler
         nri::Rc<ID3D12Resource> m_variance;
+        nri::Rc<ID3D12Resource> m_denoisedOutput;
 
         // A-Trous output index shows which image in m_svgfATrousTargets is a denoised output image
         uint32_t m_aTrousOutputIndex;
@@ -136,7 +164,8 @@ namespace Neb
         DXGI_FORMAT m_normalFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
         DXGI_FORMAT m_radianceFormat = DXGI_FORMAT_R32G32B32A32_FLOAT;
         DXGI_FORMAT m_momentFormat = DXGI_FORMAT_R16G16_FLOAT; // m1, m2
-        DXGI_FORMAT m_varianceFormat = DXGI_FORMAT_R16_FLOAT; // m1, m2
+        DXGI_FORMAT m_varianceFormat = DXGI_FORMAT_R16_FLOAT;
+        DXGI_FORMAT m_denoisedFormat = m_radianceFormat; // same as radiance format
 
         static constexpr uint32_t FirstRadianceSrvIndex = 0;
         static constexpr uint32_t FirstRadianceUavIndex = FirstRadianceSrvIndex + NumPingPongResources;
@@ -151,14 +180,8 @@ namespace Neb
         static constexpr uint32_t FirstMomentUavIndex = FirstMomentSrvIndex + NumPingPongResources;
         nri::DescriptorHeapAllocation m_momentArraySrvUavHeap;
         nri::DescriptorHeapAllocation m_varianceSrvUavHeap; // 0 srv, 1 uav (only 1 resource, no ping-pong)
+        nri::DescriptorHeapAllocation m_denoisedSrvUavHeap;
 
-        struct SVGFTemporalConstants
-        {
-            uint32_t resolution[2];
-            float depthSigma;
-            float alpha;       // tweakable stability var
-            float varianceEps; // small value
-        };
         SVGFTemporalConstants m_temporalConstants;
         // Texture2D<float3> t_RadianceSample  : register(t0, space0);
         // Texture2D<float3> t_RadianceHistory : register(t1, space0);
@@ -173,14 +196,8 @@ namespace Neb
         // RWTexture2D<float>  t_Variance : register(u2, space0);
         nri::DescriptorHeapAllocation m_svgfTemporalUavHeap;
         
-        struct SVGFAtrousConstants
-        {
-            uint32_t resolution[2];
-            float step;     // 1, 2, 4, … (powers of 2)
-            float phiColor; // nominal constant (k)
-            float phiNormal;
-            float phiDepth;
-        };
+        static constexpr uint32_t NumAtrousPasses = 4; // 1->8 px radius
+        
         SVGFAtrousConstants m_aTrousConstants;
         // Texture2D<float3> t_Radiance   : register(t0, space0);
         // Texture2D<float>  t_Variance   : register(t1, space0);

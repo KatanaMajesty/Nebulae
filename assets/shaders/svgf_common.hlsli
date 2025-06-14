@@ -24,3 +24,12 @@ float SVGF_LuminanceWeight(float3 L0, float3 L1, float varDenom)
     float3 dL = L0 - L1;
     return exp(-dot(dL, dL) / (4.0 * varDenom * varDenom));
 }
+
+// From brdf.hlsli
+//
+// converts an RGB triplet to a single 'brightness' number that approximates how the human eye weights red, green and blue light.
+// Ref: ITU-R BT.709-6, Section 3: Signal Format, 'Derivation of luminance signal'
+float Luminance(float3 rgb)
+{
+    return dot(rgb, float3(0.2126f, 0.7152f, 0.0722f));
+}

@@ -21,15 +21,6 @@ RWTexture2D<float3> t_Radiance : register(u0, space0);
 RWTexture2D<float2> t_Moment : register(u1, space0);
 RWTexture2D<float> t_Variance : register(u2, space0);
 
-// From brdf.hlsli
-//
-// converts an RGB triplet to a single 'brightness' number that approximates how the human eye weights red, green and blue light.
-// Ref: ITU-R BT.709-6, Section 3: Signal Format, 'Derivation of luminance signal'
-float Luminance(float3 rgb)
-{
-    return dot(rgb, float3(0.2126f, 0.7152f, 0.0722f));
-}
-
 [numthreads(8, 8, 1)]
 void CSMain_SVGF_Temporal(uint3 tid : SV_DispatchThreadID)
 {
@@ -42,13 +33,13 @@ void CSMain_SVGF_Temporal(uint3 tid : SV_DispatchThreadID)
     float  Dcurr = t_Depth[loc];
 
     float4 EncodedN = t_Normal[loc];
-    float3 Ncurr = Oct16_FastUnpack(EncodedN.xy);
+    float3 Ncurr = Oct16_FastUnpack(EncodedN.zw);
 
     float3 Chist = t_RadianceHistory[loc];
     float2 Mhist = t_MomentHistory[loc];
     float  Dhist = t_DepthHistory[loc];
     float4 EncodedNhist = t_NormalHistory[loc];
-    float3 Nhist = Oct16_FastUnpack(EncodedNhist.xy);
+    float3 Nhist = Oct16_FastUnpack(EncodedNhist.zw);
 
     // stability norm
     float wDepth = SVGF_DWeight(Dcurr, Dhist, g_SVGFConstants.depthSigma);
