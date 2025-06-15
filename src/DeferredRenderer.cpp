@@ -7,6 +7,7 @@
 #include "nri/DescriptorHeap.h"
 #include "nri/ShaderCompiler.h"
 #include "nri/imgui/UiContext.h"
+#include "nri/PIXRuntime.h"
 #include "util/Memory.h"
 #include "input/InputManager.h"
 
@@ -87,6 +88,8 @@ namespace Neb
 
     void DeferredRenderer::BeginFrame(const RenderInfo& info)
     {
+        nri::BeginEvent(nri::NRIDevice::Get().GetCommandQueue(nri::eCommandContextType_Graphics), "Renderer begin frame {}", info.frameIndex);
+        
         m_frameIndex = info.frameIndex;
         m_renderInfo = info;
 
@@ -147,6 +150,8 @@ namespace Neb
 
     void DeferredRenderer::EndFrame()
     {
+        nri::EndEvent(nri::NRIDevice::Get().GetCommandQueue(nri::eCommandContextType_Graphics));
+
         m_svgfDenoiser.EndFrame();
 
         // Explicitly end RTXGI frame context
@@ -158,6 +163,8 @@ namespace Neb
         if (!m_showUI)
             return;
         
+        NEB_PIX_SCOPED_EVENT("UI commands submition");
+
         ImGui::Begin("Sun settings");
         m_dynamicSceneThisFrame |= ImGui::SliderFloat("Sun diameter", &m_sceneSunUI.roughDiameter, 0.0f, 8.0f);
         m_dynamicSceneThisFrame |= ImGui::DragFloat3("Sun direction", &m_sceneSunUI.direction.x, 0.02f, -1.0f, 1.0f);
@@ -257,6 +264,7 @@ namespace Neb
         // Rendering context
         ID3D12GraphicsCommandList4* commandList = info.commandList;
         {
+            NEB_PIX_SCOPED_EVENT(commandList, "Deferred G-Buffers (geometry)");
             SetupDescriptorHeaps(commandList);
 
             TransitionGbuffers(commandList,
@@ -327,6 +335,7 @@ namespace Neb
 
         ID3D12GraphicsCommandList4* commandList = info.commandList;
         {
+            NEB_PIX_SCOPED_EVENT(commandList, "PBR Direct Lighting + Shadows");
             // Check for AS update, and if needed - update
             InitRTAccelerationStructures(commandList);
 
@@ -422,6 +431,8 @@ namespace Neb
 
         // NRC QUERY PASS
         {
+            NEB_PIX_SCOPED_EVENT(commandList, "GI: NRC Query Pass");
+
             nri::NRIDevice& device = nri::NRIDevice::Get();
             UINT width = m_nrcConstants.frameDimensions.x;
             UINT height = m_nrcConstants.frameDimensions.x;
@@ -480,6 +491,8 @@ namespace Neb
 
         // NRC UPDATE PASS
         {
+            NEB_PIX_SCOPED_EVENT(commandList, "GI: NRC Update Pass");
+
             nri::NRIDevice& device = nri::NRIDevice::Get();
             UINT width = m_nrcConstants.trainingDimensions.x;
             UINT height = m_nrcConstants.trainingDimensions.y;
@@ -543,6 +556,7 @@ namespace Neb
         commandList->ResourceBarrier(UINT(bindlessBarriers.size()), bindlessBarriers.data());
 
         {
+            NEB_PIX_SCOPED_EVENT(commandList, "GI: NRC Query & Train");
             nri::NvRtxgiNRCIntegration::Get()->QueryAndTrain(commandList, nullptr);
         }
 
@@ -550,6 +564,7 @@ namespace Neb
             auto beforeBarriers = CD3DX12_RESOURCE_BARRIER::Transition(GetRadianceOutput(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             commandList->ResourceBarrier(1, &beforeBarriers);
 
+            NEB_PIX_SCOPED_EVENT(commandList, "GI: Resolve NRC query data");
 #if 0
             SetupDescriptorHeaps(commandList);
 
@@ -581,6 +596,7 @@ namespace Neb
             return;
 
         ID3D12GraphicsCommandList4* commandList = m_renderInfo.commandList;
+        NEB_PIX_SCOPED_EVENT(commandList, "SVGF Denoising");
 
         // Pre-SVGF Barriers
         SVGFDenoiser& svgf = m_svgfDenoiser;

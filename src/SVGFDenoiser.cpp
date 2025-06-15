@@ -3,6 +3,7 @@
 #include "nri/Device.h"
 #include "nri/ShaderCompiler.h"
 #include "nri/imgui/UiContext.h"
+#include "nri/PIXRuntime.h"
 #include "Nebulae.h"
 
 #include <filesystem>
@@ -65,6 +66,7 @@ namespace Neb
     void SVGFDenoiser::SubmitTemporalAccumulation(ID3D12GraphicsCommandList4* commandList)
     {
         NEB_ASSERT(IsInitialized());
+        NEB_PIX_SCOPED_EVENT(commandList, "SVGF: Temporal Accumulation");
 
         UINT width = m_width;
         UINT height = m_height;
@@ -131,6 +133,7 @@ namespace Neb
     void SVGFDenoiser::SubmitATrousComputeWavelet(ID3D12GraphicsCommandList4* commandList)
     {
         NEB_ASSERT(IsInitialized());
+        NEB_PIX_SCOPED_EVENT(commandList, "SVGF: A-Trous Wavelet");
 
         UINT width = m_width;
         UINT height = m_height;
@@ -149,6 +152,8 @@ namespace Neb
 
             for (uint32_t i = 0; i < NumAtrousPasses; ++i)
             {
+                NEB_PIX_SCOPED_EVENT(commandList, "SVGF: A-Trous compute {} (step {})", i, step);
+                
                 // only change non-tweakable params. Tweakable ones are defined via UI
                 m_aTrousConstants.resolution[0] = width;
                 m_aTrousConstants.resolution[1] = height;

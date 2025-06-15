@@ -564,7 +564,7 @@ void PathtracerRG()
                 sunRay.TMin = 0.001;
                 sunRay.TMax = TRACING_MAX_DISTANCE;
 
-                RayQuery < RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER > rq;
+                RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER> rq;
                 rq.TraceRayInline(SceneBVH, 0, 0xFF, sunRay);
                 rq.Proceed(); // the DXR spec says you must loop until it returns false.
 
