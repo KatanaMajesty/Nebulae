@@ -73,6 +73,7 @@ target_sources(DXRNebulae PRIVATE
     "src/nri/GIProcessedScene.cpp"
     "src/nri/GIProcessedScene.h"
     "src/nri/Material.h"
+    "src/nri/PIXRuntime.h"
     "src/nri/RootSignature.cpp"
     "src/nri/RootSignature.h"
     "src/nri/Shader.cpp"
@@ -174,6 +175,12 @@ target_sources( imgui PRIVATE
 # regardles, encourage to include headers relative to vendor dir
 target_include_directories(imgui PUBLIC "${IMGUI_SOURCE_DIR}")
 
+# PIX event runtime
+set(PIX_LIBRARY_SOURCE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/vendor/WinPixEventRuntime")
+set(PIX_LIBRARY_DIR "${PIX_LIBRARY_SOURCE_PATH}/bin/x64")
+target_include_directories(DXRNebulae PRIVATE "${PIX_LIBRARY_SOURCE_PATH}/Include")
+target_link_directories(DXRNebulae PRIVATE ${PIX_LIBRARY_DIR})
+
 target_include_directories(DXRNebulae PRIVATE 
     "src"
     "vendor"
@@ -188,6 +195,7 @@ target_link_libraries(DXRNebulae
     "imgui"
     "${NV_API_DIR}/nvapi64.lib"
     "NRC_D3D12"
+    "WinPixEventRuntime.lib"
 )
 
 # We need dxil.dll here to sign shaders compiled by DXC. Without signing them D3D12 runtime would fail
@@ -199,6 +207,8 @@ list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/cudart64_12.dll)
 list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/nvrtc-builtins64_125.dll)
 list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/nvrtc64_120_0.dll)
 list(APPEND NEBULAE_DLL_LIST ${NV_RTXGI_NRC_DIR}/Bin/NRC_D3D12.dll)
+# PIX
+list(APPEND NEBULAE_DLL_LIST ${PIX_LIBRARY_DIR}/WinPixEventRuntime.dll)
 # Join the list elements with a space separator
 string(REPLACE ";" " " my_list_str "${NEBULAE_DLL_LIST}")
 
