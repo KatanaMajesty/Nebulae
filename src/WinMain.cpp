@@ -295,6 +295,7 @@ int32_t main(int argc, char* argv[])
     Neb::Config::SetValue(Neb::EConfigKey::EnableGpuValidation,     argParser.Get<bool>(/*key*/ "enable-gpu-validation",    /*default-value*/ true));
     Neb::Config::SetValue(Neb::EConfigKey::EnableDeviceDebugging,   argParser.Get<bool>(/*key*/ "enable-device-debug",      /*default-value*/ true));
     Neb::Config::SetValue(Neb::EConfigKey::EnableNvDriver,          argParser.Get<bool>(/*key*/ "enable-nv-driver",         /*default-value*/ true));
+    Neb::Config::SetValue(Neb::EConfigKey::ForceShaderOptimization, argParser.Get<bool>(/*key*/ "force-shader-optimization",/*default-value*/ true));
     /* clang-format on */
 
     constexpr const char* lpClassName = "DXRNebulae";
@@ -312,14 +313,25 @@ int32_t main(int argc, char* argv[])
     Neb::nri::NRIDevice::Get().Init();
     Neb::nri::NvRtxgiNRCIntegration::Get()->Init();
 
+    DWORD style = WS_OVERLAPPEDWINDOW; // or what you need
+    DWORD styleEx = 0;                 // WS_EX_APPWINDOW �
+
+    const int clientW = 1834;
+    const int clientH = 934;
+    RECT rc = { 0, 0, clientW, clientH };
+    AdjustWindowRectEx(&rc, style, FALSE, styleEx);
+
+    int outerW = rc.right - rc.left;
+    int outerH = rc.bottom - rc.top;
+
     HWND hwnd = CreateWindowEx(
         0,                   // Optional window styles.
         lpClassName,         // Window class
         lpWindowName,        // Window text
-        WS_OVERLAPPEDWINDOW, // Window style
+        style,               // Window style
 
         // Size and position
-        CW_USEDEFAULT, CW_USEDEFAULT, 1920, 1080,
+        CW_USEDEFAULT, CW_USEDEFAULT, outerW, outerH,
         //CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
 
         NULL,      // Parent window
@@ -340,7 +352,7 @@ int32_t main(int argc, char* argv[])
     InitInputMappings();
 
     // This code will be moved to Nebulae soon
-    static const std::filesystem::path AssetsDir = GetModuleDirectory().parent_path().parent_path().parent_path() / "assets";
+    static const std::filesystem::path AssetsDir = GetModuleDirectory().parent_path().parent_path() / "assets";
     Neb::Nebulae& nebulae = Neb::Nebulae::Get();
     Neb::nri::ThrowIfFalse(nebulae.Init(Neb::AppSpec{ .Handle = hwnd, .AssetsDirectory = AssetsDir }));
 

@@ -54,12 +54,16 @@ namespace Neb::nri
         //          false otherwise
         bool IsKeyboardBusy();
 
+        ImFont* GetBigFont() const { return m_bigFont; }
+
     private:
         void InitWin32Hwnd();
         void InitDx12();
 
         UiSpecification m_spec = UiSpecification();
         ImGuiContext* m_internalContext = nullptr;
+
+        ImFont* m_bigFont = nullptr;
     };
 
 }; // Neb::nri namespace

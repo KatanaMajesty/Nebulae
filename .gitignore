@@ -367,3 +367,4 @@ FodyWeavers.xsd
 !vendor/NVIDIA/RTXGI/Nrc/*
 !vendor/WinPixEventRuntime/bin/*
 
+build/

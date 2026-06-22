@@ -84,6 +84,8 @@ namespace Neb
     {
         if (event.Keycode == eKeycode_F1 && event.NextState == eKeycodeState_Pressed)
             m_showUI = !m_showUI;
+        if (event.Keycode == eKeycode_F2 && event.NextState == eKeycodeState_Pressed)
+            m_showStats = !m_showStats;
     }
 
     void DeferredRenderer::BeginFrame(const RenderInfo& info)
@@ -101,33 +103,35 @@ namespace Neb
             InitPathtracerScene(info.scene);
         }
 
-        nrc::ContextSettings nrcContextSettings = nrc::ContextSettings();
-        nrcContextSettings.learnIrradiance = true;
-        nrcContextSettings.includeDirectLighting = false;
-        nrcContextSettings.requestReset = false;
-        nrcContextSettings.frameDimensions = { m_width, m_height };
-
-        nrcContextSettings.trainingDimensions = nrc::ComputeIdealTrainingDimensions(nrcContextSettings.frameDimensions, 4);
-        nrcContextSettings.maxPathVertices = m_globalIlluminationUI.nrcMaxPathVertices;
-        nrcContextSettings.samplesPerPixel = m_globalIlluminationUI.giSamplesPerPixel;
-
-        Vec3 min = info.scene->SceneBox.min;
-        Vec3 max = info.scene->SceneBox.max;
-        nrcContextSettings.sceneBoundsMin = { min.x, min.y, min.z };
-        nrcContextSettings.sceneBoundsMax = { max.x, max.y, max.z };
-        nrcContextSettings.smallestResolvableFeatureSize = 0.01f;
-        if (ConfigureNRCState(nrcContextSettings))
+        if (m_useNRC)
         {
-            InitPathtracerDescriptors();
-            InitRadianceResolveCreateResourcesAndDescriptors();
-        }
+            nrc::ContextSettings nrcContextSettings = nrc::ContextSettings();
+            nrcContextSettings.learnIrradiance = m_globalIlluminationUI.learnIrradiance;
+            nrcContextSettings.includeDirectLighting = m_globalIlluminationUI.includeDirectLighting;
+            nrcContextSettings.requestReset = false;
+            nrcContextSettings.frameDimensions = { m_width, m_height };
 
-        // RTXGI NRC
-        {
-            nri::NvRtxgiNRCIntegration::Get()->BeginFrame(info.commandList, m_nrcFrameSettings);
-            nri::NvRtxgiNRCIntegration::Get()->PopulateShaderConstants(&GetNrcConstants()); // update NrcConstants struct to then be used in constant buffer
-        }
+            nrcContextSettings.trainingDimensions = nrc::ComputeIdealTrainingDimensions(nrcContextSettings.frameDimensions, m_nrcFrameSettings.numTrainingIterations);
+            nrcContextSettings.maxPathVertices = m_globalIlluminationUI.nrcMaxPathVertices;
+            nrcContextSettings.samplesPerPixel = m_globalIlluminationUI.giSamplesPerPixel;
 
+            Vec3 min = info.scene->SceneBox.min;
+            Vec3 max = info.scene->SceneBox.max;
+            nrcContextSettings.sceneBoundsMin = { min.x, min.y, min.z };
+            nrcContextSettings.sceneBoundsMax = { max.x, max.y, max.z };
+            nrcContextSettings.smallestResolvableFeatureSize = 0.001f;
+            if (ConfigureNRCState(nrcContextSettings))
+            {
+                InitPathtracerDescriptors();
+                InitRadianceResolveCreateResourcesAndDescriptors();
+            }
+
+            // RTXGI NRC
+            {
+                nri::NvRtxgiNRCIntegration::Get()->BeginFrame(info.commandList, m_nrcFrameSettings);
+                nri::NvRtxgiNRCIntegration::Get()->PopulateShaderConstants(&GetNrcConstants()); // update NrcConstants struct to then be used in constant buffer
+            }
+        }
         m_svgfDenoiser.BeginFrame(info.frameIndex);
 
         // Update camera
@@ -155,11 +159,27 @@ namespace Neb
         m_svgfDenoiser.EndFrame();
 
         // Explicitly end RTXGI frame context
-        nri::NvRtxgiNRCIntegration::Get()->EndFrame(nri::NRIDevice::Get().GetCommandQueue(nri::eCommandContextType_Graphics));
+        if (m_useNRC)
+        {
+            nri::NvRtxgiNRCIntegration::Get()->EndFrame(nri::NRIDevice::Get().GetCommandQueue(nri::eCommandContextType_Graphics));
+        }
     }
 
     void DeferredRenderer::SubmitUICommands()
     {
+        if (m_showStats)
+        {
+            uint32_t statsWindowFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBackground;
+            ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+            ImGui::SetNextWindowSize(ImVec2(m_width / 2.0f, m_height / 2.0f));
+            if (ImGui::Begin("##stats_window", nullptr, statsWindowFlags))
+            {
+                ImGui::SetWindowFontScale(2.0f);
+                ImGui::Text("frametime %.3fms (%.1f FPS)", m_renderInfo.lastSecondFramerate, 1000.f / m_renderInfo.lastSecondFramerate);
+                ImGui::Text("Eye position Vec3(%.3f, %.3f, %.3f)", m_eyePos.x, m_eyePos.y, m_eyePos.z);
+            }
+            ImGui::End();
+        }
         if (!m_showUI)
             return;
         
@@ -173,6 +193,7 @@ namespace Neb
 
         ImGui::Begin("GI & Pathtracing");
         {
+            ImGui::Checkbox("Enable NRC", &m_useNRC);
             if (ImGui::Button("Reload GI shaders"))
             {
                 InitPathtracerShadersAndRootSignatures();
@@ -180,68 +201,80 @@ namespace Neb
                 InitPathtracerSBT();
             }
 
-            ImGui::SliderInt("Samples per pixel", &m_globalIlluminationUI.giSamplesPerPixel, 1, 16);
+            ImGui::Checkbox("Learn irradiance", &m_globalIlluminationUI.learnIrradiance);
+            ImGui::Checkbox("Include direct lighting", &m_globalIlluminationUI.includeDirectLighting);
+            ImGui::SliderInt("Samples per pixel", &m_globalIlluminationUI.giSamplesPerPixel, 1, 64);
             ImGui::SliderInt("Max path vertices", &m_globalIlluminationUI.nrcMaxPathVertices, 1, 32);
-            ImGui::SliderFloat3("Sky color", &m_globalIlluminationUI.skyColor.x, 0.0f, 8.0f);
+            ImGui::SliderFloat3("Sky color", &m_globalIlluminationUI.skyColor.x, 0.0f, 32.0f);
             ImGui::SliderFloat("Throughput threshold", &m_globalIlluminationUI.throughputThreshold, 0.0f, 1.0f);
         }
         ImGui::End();
 
-        ImGui::Begin("Neural radiance cache (RTXGI)");
+        if (m_useNRC)
         {
-            // NRC works better when the radiance values it sees internally are in a 'friendly'
-            // range for it.
-            // Applications often have quite different scales for their radiance units, so
-            // we need to be able to scale these units in order to get that nice NRC-friendly range.
-            // This value should broadly correspond to the average radiance that you might see
-            // in one of your bright scenes (e.g. outdoors in daylight).
-            ImGui::DragFloat("Max average radiance", &m_nrcFrameSettings.maxExpectedAverageRadianceValue, 0.025f, 0.0f, 32.0f);
-            // This will prevent NRC from terminating on mirrors - it continue to the next vertex
-            ImGui::Checkbox("Skip delta vertices", &m_nrcFrameSettings.skipDeltaVertices);
-            // Knob for the termination heuristic to determine when it terminates the path.
-            // The default value should give good quality.  You can decrease the value to
-            // bias the algorithm to terminating earlier, trading off quality for performance.
-            ImGui::DragFloat("Termination heuristic threshold", &m_nrcFrameSettings.terminationHeuristicThreshold, 0.01f, 0.0f, 1.0f);
-
-            ImGui::Combo("Resolve Mode", (int*)&m_nrcFrameSettings.resolveMode, nrc::GetImGuiResolveModeComboString());
-
-            // Debugging aid. You can disable the training to 'freeze' the state of the cache.
-            ImGui::Checkbox("Train NRC", &m_nrcFrameSettings.trainTheCache);
-
-            // Proportion of unbiased paths that we should do self-training on
-            float proportionUnbiasedToSelfTrain = 1.0f;
-            ImGui::DragFloat("Proportion unbiased (self-train)", &m_nrcFrameSettings.proportionUnbiasedToSelfTrain, 0.01f, 0.0f, 1.0f);
-
-            // Proportion of training paths that should be 'unbiased'
-            float proportionUnbiased = 0.0625f;
-            ImGui::DragFloat("Proportion unbiased", &m_nrcFrameSettings.proportionUnbiased, 0.01f, 0.0f, 1.0f);
-
-            // Allows the radiance from self-training to be attenuated or completely disabled
-            // to help debugging.
-            // If there's an error in the path tracer that breaks energy conservation for example,
-            // the self training feedback can sometimes lead to the cache getting brighter
-            // and brighter. This control can help debug such issues.
-            float selfTrainingAttenuation = 1.0f;
-            ImGui::DragFloat("Self-train attenuation", &m_nrcFrameSettings.selfTrainingAttenuation, 0.025f, 0.0f, 1.0f);
-
-            // This controls how many training iterations are performed each frame,
-            // which in turn determines the ideal number of training records that
-            // the training/update path tracing pass is expected to generate.
-            // Each training batch contains 16K training records derived from path segments
-            // in the the NRC update path tracing pass.
-            // `ComputeIdealTrainingDimensions` to set a lower resolution in
-            // `FrameSettings::usedTrainingDimensions` (and your training/update dispatch).
-            ImGui::SliderInt("Training iterations", (int*)&m_nrcFrameSettings.numTrainingIterations, 1, 32);
-            ImGui::DragFloat("LR", &m_nrcFrameSettings.learningRate, 0.001f, 0.0f, 0.1f);
-
-            if (ImGui::Button("Reset NRC"))
+            ImGui::Begin("Neural radiance cache (RTXGI)");
             {
-                nrc::ContextSettings settings = m_nrcContextSettings;
-                settings.requestReset = true;
-                ConfigureNRCState(settings);
+                // NRC works better when the radiance values it sees internally are in a 'friendly'
+                // range for it.
+                // Applications often have quite different scales for their radiance units, so
+                // we need to be able to scale these units in order to get that nice NRC-friendly range.
+                // This value should broadly correspond to the average radiance that you might see
+                // in one of your bright scenes (e.g. outdoors in daylight).
+                ImGui::DragFloat("Max average radiance", &m_nrcFrameSettings.maxExpectedAverageRadianceValue, 0.025f, 0.0f, 32.0f);
+                // This will prevent NRC from terminating on mirrors - it continue to the next vertex
+                ImGui::Checkbox("Skip delta vertices", &m_nrcFrameSettings.skipDeltaVertices);
+                // Knob for the termination heuristic to determine when it terminates the path.
+                // The default value should give good quality.  You can decrease the value to
+                // bias the algorithm to terminating earlier, trading off quality for performance.
+                ImGui::DragFloat("Termination heuristic threshold", &m_nrcFrameSettings.terminationHeuristicThreshold, 0.01f, 0.0f, 1.0f);
+
+                ImGui::Combo("Resolve Mode", (int*)&m_nrcFrameSettings.resolveMode, nrc::GetImGuiResolveModeComboString());
+
+                // Debugging aid. You can disable the training to 'freeze' the state of the cache.
+                ImGui::Checkbox("Train NRC", &m_nrcFrameSettings.trainTheCache);
+
+                // Allows the radiance from self-training to be attenuated or completely disabled
+                // to help debugging.
+                // If there's an error in the path tracer that breaks energy conservation for example,
+                // the self training feedback can sometimes lead to the cache getting brighter
+                // and brighter. This control can help debug such issues.
+                float selfTrainingAttenuation = 1.0f;
+                ImGui::DragFloat("Self-train attenuation", &m_nrcFrameSettings.selfTrainingAttenuation, 0.025f, 0.0f, 1.0f);
+
+                // This controls how many training iterations are performed each frame,
+                // which in turn determines the ideal number of training records that
+                // the training/update path tracing pass is expected to generate.
+                // Each training batch contains 16K training records derived from path segments
+                // in the the NRC update path tracing pass.
+                // `ComputeIdealTrainingDimensions` to set a lower resolution in
+                // `FrameSettings::usedTrainingDimensions` (and your training/update dispatch).
+                ImGui::SliderInt("Training iterations", (int*)&m_nrcFrameSettings.numTrainingIterations, 1, 32);
+                ImGui::DragFloat("LR", &m_nrcFrameSettings.learningRate, 0.001f, 0.0f, 0.1f);
+
+                // Development debugging aids.
+
+                // Controls what proportion of different path segments are used for training.
+                // Proportion of primary segments used to train the cache.  Should be very low.
+                ImGui::DragFloat("proportionPrimarySegmentsToTrainOn", &m_nrcFrameSettings.proportionPrimarySegmentsToTrainOn, 0.001f, 0.0f, 1.0f);
+
+                // Proportion of tertiary and beyond segments to train on
+                ImGui::DragFloat("proportionTertiaryPlusSegmentsToTrainOn", &m_nrcFrameSettings.proportionTertiaryPlusSegmentsToTrainOn, 0.001f, 0.0f, 1.0f);
+
+                // Proportion of unbiased paths that we should do self-training on
+                ImGui::DragFloat("proportionUnbiasedToSelfTrain", &m_nrcFrameSettings.proportionUnbiasedToSelfTrain, 0.001f, 0.0f, 1.0f);
+
+                // Proportion of training paths that should be 'unbiased'
+                ImGui::DragFloat("proportionUnbiased", &m_nrcFrameSettings.proportionUnbiased, 0.001f, 0.0f, 1.0f);
+
+                if (ImGui::Button("Reset NRC"))
+                {
+                    nrc::ContextSettings settings = m_nrcContextSettings;
+                    settings.requestReset = true;
+                    ConfigureNRCState(settings);
+                }
             }
+            ImGui::End();
         }
-        ImGui::End();
 
         ImGui::Begin("SVGF denoising");
         SVGFDenoiser::SVGFTemporalConstants& temporal = m_svgfDenoiser.GetTemporalConstants();
@@ -293,18 +326,24 @@ namespace Neb
                     "Static mesh is invalid. It has {} submeshes while only {} materials",
                     numSubmeshes, staticMesh.SubmeshMaterials.size());
 
+                CbInstanceInfo cbInstanceInfo = CbInstanceInfo
+                {
+                    .InstanceToWorld = staticMesh.InstanceToWorld,
+                    .ViewProj = viewProj,
+                };
+                std::memcpy(m_cbInstance.GetMapping<CbInstanceInfo>(info.backbufferIndex), &cbInstanceInfo, sizeof(CbInstanceInfo));
+
                 for (size_t i = 0; i < numSubmeshes; ++i)
                 {
                     nri::StaticSubmesh& submesh = staticMesh.Submeshes[i];
                     nri::Material& material = staticMesh.SubmeshMaterials[i];
 
-                    CbInstanceInfo cbInstanceInfo = CbInstanceInfo{
-                        .InstanceToWorld = staticMesh.InstanceToWorld,
-                        .ViewProj = viewProj,
+                    CbMaterialInfo materialInfo = {
+                        .Albedo = material.AlbedoFactor,
+                        .RoughnessMetalness = material.RoughnessMetalnessFactor,
                         .MaterialFlags = material.Flags // TODO: Would be nice to have a separate constant buffer for material properties
                     };
-                    std::memcpy(m_cbInstance.GetMapping<CbInstanceInfo>(info.backbufferIndex), &cbInstanceInfo, sizeof(CbInstanceInfo));
-
+                    commandList->SetGraphicsRoot32BitConstants(DEFERRED_RENDERER_ROOTS_MATERIAL_INFO_32BIT, sizeof(CbMaterialInfo) / sizeof(uint32_t), &materialInfo, 0);
                     commandList->SetGraphicsRootDescriptorTable(DEFERRED_RENDERER_ROOTS_MATERIAL_TEXTURES, material.SrvRange.GpuAddress);
 
                     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -401,33 +440,35 @@ namespace Neb
 
         // Update CB data
         {
+            m_globalConstants = GlobalConstants{
+                .frameIndex = info.frameIndex,
+                .samplesPerPixel = uint32_t(m_globalIlluminationUI.giSamplesPerPixel),
+                .nrcTrainingDownscale = Vec2(
+                    m_nrcConstants.frameDimensions.x / m_nrcConstants.trainingDimensions.x,
+                    m_nrcConstants.frameDimensions.y / m_nrcConstants.trainingDimensions.y),
+                .nrcMaxPathVertices = uint32_t(m_globalIlluminationUI.nrcMaxPathVertices),
+                .cameraWorldPos = m_eyePos,
+                .skyColor = m_globalIlluminationUI.skyColor,
+                .sunLightDirection = m_sceneSunUI.direction,
+                .sunLightRadiance = m_sceneSunUI.radiance,
+                .sunTanHalfAngle = tanf(ToRadians(m_sceneSunUI.roughDiameter * 0.5f)),
+                .throughputThreshold = m_globalIlluminationUI.throughputThreshold
+            };
             // Nrc shader constants are updated in Renderer.cpp
             // TODO: maybe change that? Have NRC context here only?
             m_nrcConstantsCB.Upload(info.backbufferIndex, this->GetNrcConstants());
-            m_globalConstantsCB.Upload(info.backbufferIndex, GlobalConstants{
-                                                                 .frameIndex = info.frameIndex,
-                                                                 .samplesPerPixel = uint32_t(m_globalIlluminationUI.giSamplesPerPixel),
-                                                                 .nrcTrainingDownscale = Vec2(
-                                                                     m_nrcConstants.frameDimensions.x / float(m_nrcConstants.trainingDimensions.x),
-                                                                     m_nrcConstants.frameDimensions.y / float(m_nrcConstants.trainingDimensions.y)),
-                                                                 .nrcMaxPathVertices = uint32_t(m_globalIlluminationUI.nrcMaxPathVertices),
-                                                                 .cameraWorldPos = m_eyePos,
-                                                                 .skyColor = m_globalIlluminationUI.skyColor,
-                                                                 .sunLightDirection = m_sceneSunUI.direction,
-                                                                 .sunLightRadiance = m_sceneSunUI.radiance,
-                                                                 .sunTanHalfAngle = tanf(ToRadians(m_sceneSunUI.roughDiameter * 0.5f)),
-                                                                 .throughputThreshold = m_globalIlluminationUI.throughputThreshold
-                                                             });
+            m_globalConstantsCB.Upload(info.backbufferIndex, m_globalConstants);
         }
         
         ID3D12GraphicsCommandList4* commandList = info.commandList;
 
-        std::vector<D3D12_RESOURCE_BARRIER> bindlessBarriers;
+        std::vector<D3D12_RESOURCE_BARRIER> nrcBarriers;
         for (nri::Rc<ID3D12Resource> resource : m_giScene.GetBindlessBuffers().resources)
         {
-            bindlessBarriers.push_back(CD3DX12_RESOURCE_BARRIER::Transition(resource.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+            nrcBarriers.push_back(CD3DX12_RESOURCE_BARRIER::Transition(resource.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
         }
-        commandList->ResourceBarrier(UINT(bindlessBarriers.size()), bindlessBarriers.data());
+        nrcBarriers.push_back(CD3DX12_RESOURCE_BARRIER::Transition(GetRadianceOutput(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+        commandList->ResourceBarrier(UINT(nrcBarriers.size()), nrcBarriers.data());
 
         // NRC QUERY PASS
         {
@@ -439,7 +480,8 @@ namespace Neb
             {
                 SetupDescriptorHeaps(commandList);
 
-                commandList->SetPipelineState1(m_nrcQueryPSO.Get());
+                nri::Rc<ID3D12StateObject> pso = m_useNRC ? m_nrcQueryPSO : m_refTracePSO;
+                commandList->SetPipelineState1(pso.Get());
                 commandList->SetComputeRootSignature(m_giGlobalRS.GetD3D12RootSignature());
                 {
                     commandList->SetComputeRootConstantBufferView(PATHTRACER_ROOT_NRC_CONSTANTS, m_nrcConstantsCB.GetGpuVirtualAddress(info.backbufferIndex));
@@ -447,7 +489,7 @@ namespace Neb
 
                     //// for these I need to add UAV creation in NvRtxgiNRC.cpp
                     commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_NRC_BUFFERS, m_nrcBufferUavHeap.GpuAddress);
-                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_NRC_NEBULAE_BUFFERS, m_NRCDebugBuffersHeap.GpuAddress);
+                    //commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_NRC_NEBULAE_BUFFERS, m_NRCDebugBuffersHeap.GpuAddress);
 
                     commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_GBUFFER_TEXTURES, m_gbufferSrvHeap.GpuAddress);
                     commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_GBUFFER_NORMALS, m_svgfDenoiser.GetNormalSrv(m_svgfDenoiser.GetCurrentResourceIndex()));
@@ -459,26 +501,31 @@ namespace Neb
                     commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_BINDLESS_BUFFERS, m_giScene.GetBindlessBufferHeap().GpuAddress);
                     commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_GEOMETRY_DATA, m_giScene.GetGeometryDataHeap().GpuAddress);
                     commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_MATERIAL_DATA, m_giScene.GetMaterialDataHeap().GpuAddress);
+                    
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_HDR_OUTPUT, m_svgfDenoiser.GetCurrentRadianceUav());
                 }
 
                 // Setup the raytracing task
                 D3D12_DISPATCH_RAYS_DESC desc = {};
+
+                nri::Rc<ID3D12Resource> sbt = m_useNRC ? m_rsQuerySBTBuffer : m_rsReferenceSBTBuffer;
+                nv_helpers_dx12::ShaderBindingTableGenerator& sbtGenerator = m_useNRC ? m_rsQuerySBTGenerator : m_rsReferenceSBTGenerator;
                 // The ray generation shaders are always at the beginning of the SBT.
                 // important to do in order to align with currentTableOffset
                 uint32_t currentTableOffset = 0;
-                D3D12_GPU_VIRTUAL_ADDRESS sbtAddress = m_rsQuerySBTBuffer->GetGPUVirtualAddress();
+                D3D12_GPU_VIRTUAL_ADDRESS sbtAddress = sbt->GetGPUVirtualAddress();
                 desc.RayGenerationShaderRecord.StartAddress = sbtAddress;
-                desc.RayGenerationShaderRecord.SizeInBytes = m_rsQuerySBTGenerator.GetRayGenSectionSize();
+                desc.RayGenerationShaderRecord.SizeInBytes = sbtGenerator.GetRayGenSectionSize();
                 currentTableOffset += ROUND_UP(desc.RayGenerationShaderRecord.SizeInBytes, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
 
                 desc.MissShaderTable.StartAddress = ROUND_UP(sbtAddress + currentTableOffset, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
-                desc.MissShaderTable.StrideInBytes = m_rsQuerySBTGenerator.GetMissEntrySize();
-                desc.MissShaderTable.SizeInBytes = m_rsQuerySBTGenerator.GetMissSectionSize();
+                desc.MissShaderTable.StrideInBytes = sbtGenerator.GetMissEntrySize();
+                desc.MissShaderTable.SizeInBytes = sbtGenerator.GetMissSectionSize();
                 currentTableOffset += ROUND_UP(desc.MissShaderTable.SizeInBytes, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
 
                 desc.HitGroupTable.StartAddress = ROUND_UP(sbtAddress + currentTableOffset, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
-                desc.HitGroupTable.StrideInBytes = m_rsQuerySBTGenerator.GetHitGroupEntrySize();
-                desc.HitGroupTable.SizeInBytes = m_rsQuerySBTGenerator.GetHitGroupSectionSize();
+                desc.HitGroupTable.StrideInBytes = sbtGenerator.GetHitGroupEntrySize();
+                desc.HitGroupTable.SizeInBytes = sbtGenerator.GetHitGroupSectionSize();
                 currentTableOffset += ROUND_UP(desc.HitGroupTable.SizeInBytes, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
 
                 desc.Width = width;
@@ -490,6 +537,7 @@ namespace Neb
         }
 
         // NRC UPDATE PASS
+        if (m_useNRC)
         {
             NEB_PIX_SCOPED_EVENT(commandList, "GI: NRC Update Pass");
 
@@ -507,10 +555,11 @@ namespace Neb
 
                     //// for these I need to add UAV creation in NvRtxgiNRC.cpp
                     commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_NRC_BUFFERS, m_nrcBufferUavHeap.GpuAddress);
-                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_NRC_NEBULAE_BUFFERS, m_NRCDebugBuffersHeap.GpuAddress);
+                    //commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_NRC_NEBULAE_BUFFERS, m_NRCDebugBuffersHeap.GpuAddress);
 
                     commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_GBUFFER_TEXTURES, m_gbufferSrvHeap.GpuAddress);
-                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_SCENE_DEPTH, m_svgfDenoiser.GetDepthSrv(m_svgfDenoiser.GetCurrentResourceIndex()) );
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_GBUFFER_NORMALS, m_svgfDenoiser.GetNormalSrv(m_svgfDenoiser.GetCurrentResourceIndex()));
+                    commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_SCENE_DEPTH, m_svgfDenoiser.GetDepthSrv(m_svgfDenoiser.GetCurrentResourceIndex()));
                     commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_SCENE_STENCIL, m_svgfDenoiser.GetStencilSrv(m_svgfDenoiser.GetCurrentResourceIndex()) );
                     commandList->SetComputeRootDescriptorTable(PATHTRACER_ROOT_SCENE_BVH, m_tlasSrvHeap.GpuAddress);
 
@@ -548,18 +597,29 @@ namespace Neb
             }
         }
 
-        for (D3D12_RESOURCE_BARRIER& barrier : bindlessBarriers)
+        nrcBarriers.clear();
+        nrcBarriers.push_back(CD3DX12_RESOURCE_BARRIER::Transition(GetRadianceOutput(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON));
+        for (nri::Rc<ID3D12Resource> resource : m_giScene.GetBindlessBuffers().resources)
         {
-            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+            nrcBarriers.push_back(CD3DX12_RESOURCE_BARRIER::Transition(resource.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON));
         }
-        commandList->ResourceBarrier(UINT(bindlessBarriers.size()), bindlessBarriers.data());
+        /*nrcBarriers.push_back(CD3DX12_RESOURCE_BARRIER::UAV(nri::NvRtxgiNRCIntegration::Get()->GetNRCBuffer(nrc::BufferIdx::Counter).resource.Get()));
+        nrcBarriers.push_back(CD3DX12_RESOURCE_BARRIER::UAV(nri::NvRtxgiNRCIntegration::Get()->GetNRCBuffer(nrc::BufferIdx::QueryPathInfo).resource.Get()));
+        nrcBarriers.push_back(CD3DX12_RESOURCE_BARRIER::UAV(nri::NvRtxgiNRCIntegration::Get()->GetNRCBuffer(nrc::BufferIdx::TrainingPathInfo).resource.Get()));
+        nrcBarriers.push_back(CD3DX12_RESOURCE_BARRIER::UAV(nri::NvRtxgiNRCIntegration::Get()->GetNRCBuffer(nrc::BufferIdx::TrainingPathVertices).resource.Get()));
+        nrcBarriers.push_back(CD3DX12_RESOURCE_BARRIER::UAV(nri::NvRtxgiNRCIntegration::Get()->GetNRCBuffer(nrc::BufferIdx::TrainingRadiance).resource.Get()));
+        nrcBarriers.push_back(CD3DX12_RESOURCE_BARRIER::UAV(nri::NvRtxgiNRCIntegration::Get()->GetNRCBuffer(nrc::BufferIdx::TrainingRadianceParams).resource.Get()));
+        nrcBarriers.push_back(CD3DX12_RESOURCE_BARRIER::UAV(nri::NvRtxgiNRCIntegration::Get()->GetNRCBuffer(nrc::BufferIdx::QueryRadiance).resource.Get()));
+        nrcBarriers.push_back(CD3DX12_RESOURCE_BARRIER::UAV(nri::NvRtxgiNRCIntegration::Get()->GetNRCBuffer(nrc::BufferIdx::QueryRadianceParams).resource.Get()));*/
+        commandList->ResourceBarrier(UINT(nrcBarriers.size()), nrcBarriers.data());
 
+        if (m_useNRC)
         {
             NEB_PIX_SCOPED_EVENT(commandList, "GI: NRC Query & Train");
             nri::NvRtxgiNRCIntegration::Get()->QueryAndTrain(commandList, nullptr);
         }
 
+        if (m_useNRC)
         {
             auto beforeBarriers = CD3DX12_RESOURCE_BARRIER::Transition(GetRadianceOutput(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             commandList->ResourceBarrier(1, &beforeBarriers);
@@ -620,6 +680,7 @@ namespace Neb
         UINT width = swapchain->GetWidth();
         UINT height = swapchain->GetHeight();
 
+        NEB_PIX_SCOPED_EVENT(commandList, "Tonemapping (ACES)");
         {
             SetupDescriptorHeaps(commandList);
             
@@ -877,6 +938,7 @@ namespace Neb
 
         m_gbufferRS = nri::RootSignature(DEFERRED_RENDERER_ROOTS_NUM_ROOTS, 1);
         m_gbufferRS.AddParamCbv(DEFERRED_RENDERER_ROOTS_INSTANCE_INFO, 0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_ALL);
+        m_gbufferRS.AddParam32BitConstants(DEFERRED_RENDERER_ROOTS_MATERIAL_INFO_32BIT, sizeof(CbMaterialInfo) / sizeof(uint32_t), 1, 0, D3D12_SHADER_VISIBILITY_PIXEL);
         m_gbufferRS.AddParamDescriptorTable(DEFERRED_RENDERER_ROOTS_MATERIAL_TEXTURES, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, nri::eMaterialTextureType_NumTypes, 0, 0), D3D12_SHADER_VISIBILITY_PIXEL);
         m_gbufferRS.AddStaticSampler(0, CD3DX12_STATIC_SAMPLER_DESC(0));
 
@@ -999,8 +1061,7 @@ namespace Neb
             .transformation = staticMesh.InstanceToWorld,
             .instanceID = 0,    // TODO: Figure it out
             .hitGroupIndex = 0, // TODO: Change to actually match SBT entry
-            .flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE,
-            //.flags = D3D12_RAYTRACING_INSTANCE_FLAG_NONE,
+            //.flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE,
         };
 
         m_tlas = m_asBuilder.CreateTlas(commandList, std::span(&instance, 1));
@@ -1129,16 +1190,27 @@ namespace Neb
 
         m_rsUpdatePathtracer = nri::ShaderCompiler::Get()->CompileLibrary(
             shaderFilepath.string(),
-            nri::LibraryCompilationDesc().AddDefine(nri::ShaderDefine("NRC_UPDATE", "1")),
+            nri::LibraryCompilationDesc()
+                .AddDefine(nri::ShaderDefine("NRC_UPDATE", "1"))
+                .AddDefine(nri::ShaderDefine("ENABLE_NRC", "1")),
             nri::eShaderCompilationFlag_Enable16BitTypes); // NRC needs 16-bit types to be enabled/supported
 
         m_rsQueryPathtracer = nri::ShaderCompiler::Get()->CompileLibrary(
             shaderFilepath.string(),
-            nri::LibraryCompilationDesc().AddDefine(nri::ShaderDefine("NRC_QUERY", "1")),
+            nri::LibraryCompilationDesc()
+                .AddDefine(nri::ShaderDefine("NRC_QUERY", "1"))
+                .AddDefine(nri::ShaderDefine("ENABLE_NRC", "1")),
+            nri::eShaderCompilationFlag_Enable16BitTypes); // NRC needs 16-bit types to be enabled/supported
+
+        m_rsReferencePathtracer = nri::ShaderCompiler::Get()->CompileLibrary(
+            shaderFilepath.string(),
+            nri::LibraryCompilationDesc()
+                .AddDefine(nri::ShaderDefine("ENABLE_NRC", "0")),
             nri::eShaderCompilationFlag_Enable16BitTypes); // NRC needs 16-bit types to be enabled/supported
 
         NEB_ASSERT(m_rsUpdatePathtracer.HasBinary(), "Failed to compile update NRC pathtracer shader: {}", shaderFilepath.string());
         NEB_ASSERT(m_rsQueryPathtracer.HasBinary(), "Failed to compile query NRC pathtracer shader: {}", shaderFilepath.string());
+        NEB_ASSERT(m_rsReferencePathtracer.HasBinary(), "Failed to compile query reference pathtracer shader: {}", shaderFilepath.string());
 
         nri::NRIDevice& device = nri::NRIDevice::Get();
         {
@@ -1150,7 +1222,7 @@ namespace Neb
             rs.AddParamCbv(PATHTRACER_ROOT_GLOBAL_CONSTANTS, /*register*/ 1, /*space*/ 0);
             // NRC resources
             rs.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_BUFFERS, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 5, /*register*/ 0, /*space*/ 0));
-            rs.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_NEBULAE_BUFFERS, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ NRC_NEB_DEBUG_BUFFER_NUM_BUFFERS, /*register*/ 0, /*space*/ 1));
+            //rs.AddParamDescriptorTable(PATHTRACER_ROOT_NRC_NEBULAE_BUFFERS, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ NRC_NEB_DEBUG_BUFFER_NUM_BUFFERS, /*register*/ 0, /*space*/ 1));
             // Gbuffers/additional scene information
             rs.AddParamDescriptorTable(PATHTRACER_ROOT_GBUFFER_TEXTURES,  CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ GBUFFER_SLOT_NUM_SLOTS, /*register*/ 0, /*space*/ 1));
             rs.AddParamDescriptorTable(PATHTRACER_ROOT_GBUFFER_NORMALS,   CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ GBUFFER_SLOT_NUM_SLOTS, /*space*/ 1)); // normals separate
@@ -1163,6 +1235,7 @@ namespace Neb
             // mesh/material data for geometry reconstruction during ray tracing
             rs.AddParamDescriptorTable(PATHTRACER_ROOT_GEOMETRY_DATA, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 2, /*space*/ 5));
             rs.AddParamDescriptorTable(PATHTRACER_ROOT_MATERIAL_DATA, CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, /*num_descriptors*/ 1, /*register*/ 3, /*space*/ 5));
+            rs.AddParamDescriptorTable(PATHTRACER_ROOT_HDR_OUTPUT,    CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, /*num_descriptors*/ 1, /*register*/ 0, /*space*/ 2));
             rs.AddStaticSampler(0, CD3DX12_STATIC_SAMPLER_DESC(0));
             // clang-format on
             nri::ThrowIfFalse(rs.Init(&device), "failed to init global rs for rt scene");
@@ -1192,7 +1265,7 @@ namespace Neb
             Vec2 uv;
         };
 
-        // UPDATE PSO STATE
+        // NRC update pass
         nv_helpers_dx12::RayTracingPipelineGenerator updatePipelineGenerator(device.GetD3D12Device());
         {
             updatePipelineGenerator.AddLibrary(m_rsUpdatePathtracer.GetDxcBinaryBlob(),
@@ -1213,7 +1286,7 @@ namespace Neb
         m_nrcUpdatePSO = updatePipelineGenerator.Generate(m_giGlobalRS.GetD3D12RootSignature());
         NEB_ASSERT(m_nrcUpdatePSO != NULL);
 
-        // QUERY PSO STATE
+        // NRC query pass
         nv_helpers_dx12::RayTracingPipelineGenerator queryPipelineGenerator(device.GetD3D12Device());
         {
             queryPipelineGenerator.AddLibrary(m_rsQueryPathtracer.GetDxcBinaryBlob(),
@@ -1233,6 +1306,27 @@ namespace Neb
         }
         m_nrcQueryPSO = queryPipelineGenerator.Generate(m_giGlobalRS.GetD3D12RootSignature());
         NEB_ASSERT(m_nrcQueryPSO != NULL);
+
+        // NRC query pass
+        nv_helpers_dx12::RayTracingPipelineGenerator refPipe(device.GetD3D12Device());
+        {
+            refPipe.AddLibrary(m_rsReferencePathtracer.GetDxcBinaryBlob(),
+                {
+                    L"PathtracerRG",
+                    L"PathtracerMS",
+                    L"PathtracerCH",
+                });
+
+            refPipe.AddHitGroup(L"HitGroup", L"PathtracerCH");
+            refPipe.AddRootSignatureAssociation(m_giRayGenRS.GetD3D12RootSignature(), { L"PathtracerRG" });
+            refPipe.AddRootSignatureAssociation(m_giRayMissRS.GetD3D12RootSignature(), { L"PathtracerMS" });
+            refPipe.AddRootSignatureAssociation(m_giRayClosestHitRS.GetD3D12RootSignature(), { L"HitGroup" });
+            refPipe.SetMaxPayloadSize(sizeof(PathtracerRayPayload));      // see PathtracerRayPayload struct in pathtracer.hlsl
+            refPipe.SetMaxAttributeSize(sizeof(PathtracerRayAttributes)); // see Attributes struct in pathtracer.hlsl
+            refPipe.SetMaxRecursionDepth(MaxPathtracingRecursionDepth);
+        }
+        m_refTracePSO = refPipe.Generate(m_giGlobalRS.GetD3D12RootSignature());
+        NEB_ASSERT(m_refTracePSO != NULL);
     }
 
     void DeferredRenderer::InitPathtracerSBT()
@@ -1283,6 +1377,7 @@ namespace Neb
 
         m_rsUpdateSBTBuffer = GenerateSBT(m_rsUpdateSBTGenerator, m_nrcUpdatePSO);
         m_rsQuerySBTBuffer = GenerateSBT(m_rsQuerySBTGenerator, m_nrcQueryPSO);
+        m_rsReferenceSBTBuffer = GenerateSBT(m_rsReferenceSBTGenerator, m_refTracePSO);
     }
 
     void DeferredRenderer::InitPathtracerConstantBuffers()

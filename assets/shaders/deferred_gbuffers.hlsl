@@ -29,9 +29,16 @@ struct InstanceInfo
     // Requires 256 alignment
     float4x4 InstanceToWorld;
     float4x4 ViewProj; // Currently view-proj is in instance info, just for the time being
-    uint MaterialFlags; // refer to kMaterialFlag_*
 };
 ConstantBuffer<InstanceInfo> cbInstanceInfo : register(b0);
+
+struct MaterialInfo
+{
+    float4 Albedo;
+    float2 RoughnessMetalness;
+    uint MaterialFlags; // refer to kMaterialFlag_*
+};
+ConstantBuffer<MaterialInfo> cbMaterialInfo : register(b1);
 
 VSOutput VSMain(VSInput input)
 {
@@ -71,14 +78,16 @@ struct PSOutput
 PSOutput PSMain(VSOutput input)
 {
     float4 albedo = 0.0;
-    if (cbInstanceInfo.MaterialFlags & kMaterialFlag_HasAlbedoMap)
+    if (cbMaterialInfo.MaterialFlags & kMaterialFlag_HasAlbedoMap)
     {
         albedo = MaterialTextures[kMaterialTextures_AlbedoMapIndex].Sample(StaticSampler, input.texUv);
     }
+    else
+        albedo = cbMaterialInfo.Albedo;
 
     float3 GN = normalize(input.worldNormal);
     float3 SN = GN;
-    if (cbInstanceInfo.MaterialFlags & kMaterialFlag_HasNormalMap)
+    if (cbMaterialInfo.MaterialFlags & kMaterialFlag_HasNormalMap)
     {
         float3 tangent = normalize(input.tangent);
         float3 bitangent = normalize(input.bitangent);
@@ -89,11 +98,13 @@ PSOutput PSMain(VSOutput input)
     
     // TODO: Make it roughness factor + metalness factor from Cbuffer
     float2 roughnessMetalness = float2(1.0, 0.0);
-    if (cbInstanceInfo.MaterialFlags & kMaterialFlag_HasRoughnessMetalnessMap)
+    if (cbMaterialInfo.MaterialFlags & kMaterialFlag_HasRoughnessMetalnessMap)
     {
         // Gltf stores roughness in green channel and metalness in blue channel
         roughnessMetalness = MaterialTextures[kMaterialTextures_RoughnessMetalnessMapIndex].Sample(StaticSampler, input.texUv).gb;
     }
+    else
+        roughnessMetalness = cbMaterialInfo.RoughnessMetalness;
     
     PSOutput output;
     output.albedo = albedo.rgb;

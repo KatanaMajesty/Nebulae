@@ -35,6 +35,10 @@ namespace Neb::nri
 
         this->InitWin32Hwnd();
         this->InitDx12();
+
+        m_bigFont = ImGui::GetIO().Fonts->AddFontDefault();
+        m_bigFont->FontSize = 36.0f;
+        ImGui::GetIO().Fonts->Build(); // rebuild atlas
     }
 
     void UiContext::Shutdown()

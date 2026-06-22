@@ -8,11 +8,11 @@ namespace Neb
         BareConsole& console = BareConsole::Get();
         {
             std::scoped_lock _(console.OutputMutex);
-            assert(SetConsoleTextAttribute(console.OutputHandle, static_cast<WORD>(color)) && "Failed to set console color");
+            //assert(SetConsoleTextAttribute(console.OutputHandle, static_cast<WORD>(color)) && "Failed to set console color");
             {
                 std::println("{}", msg);
             }
-            assert(SetConsoleTextAttribute(console.OutputHandle, static_cast<WORD>(console.CurrentColor)) && "Failed to set console color");
+            //assert(SetConsoleTextAttribute(console.OutputHandle, static_cast<WORD>(console.CurrentColor)) && "Failed to set console color");
         }
     }
 

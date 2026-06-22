@@ -89,9 +89,10 @@ void CSMain(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID)
         incidentVector = L + (B * sin(angle) + T * cos(angle)) * cbLightEnvironment.tanHalfAngle * distance;
         incidentVector = normalize(incidentVector);
 
+        bool transitionSunRay = dot(GN, incidentVector) <= 0.0f;
         RayDesc ray;
         //ray.Origin = OffsetRay(worldPos, SN); // escape the surface
-        ray.Origin = worldPos + SN * 1e-2; // escape the surface
+        ray.Origin = worldPos + (transitionSunRay ? -GN : GN) * 1e-2; // escape the surface
         ray.Direction = incidentVector;
         ray.TMin = 0.0;
         ray.TMax = FLT_MAX;

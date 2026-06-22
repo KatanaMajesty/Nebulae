@@ -31,6 +31,7 @@ namespace Neb
         BOOL Init(HWND hwnd);
         BOOL InitSceneContext(Scene* scene);
 
+        void SetCurrentFramerate(float framerate) { m_currentFramerate = framerate; }
         void RenderSceneDeferred(float timestep);
 
         [[deprecated("not used anymore")]] void RenderScene(float timestep);
@@ -74,6 +75,8 @@ namespace Neb
         HWND m_hwnd = nullptr;
         Scene* m_scene = nullptr;
         UINT m_frameIndex = 0;
+
+        float m_currentFramerate = 0.0f;
 
         nri::Swapchain m_swapchain;
         nri::D3D12Rc<ID3D12Fence> m_fence;

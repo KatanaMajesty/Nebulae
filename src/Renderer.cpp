@@ -105,7 +105,8 @@ namespace Neb
                         .commandList = GetCommandList(),
                         .backbufferIndex = backbufferIndex,
                         .frameIndex = GetFrameIndex(),
-                        .timestep = timestep });
+                        .timestep = timestep,
+                        .lastSecondFramerate = m_currentFramerate });
                 });
 
             ExecuteCommandList(nri::eCommandContextType_Graphics, backbufferIndex,

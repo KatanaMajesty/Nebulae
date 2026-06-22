@@ -36,6 +36,8 @@ namespace Neb
         nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "sponza-gltf-pbr" / "Sponza.glb", EGLTFType::Binary));
         //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "sponza" / "Sponza.gltf"));
         //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "DamagedHelmet" / "DamagedHelmet.gltf"));
+        //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "dragon" / "dragon.glb", EGLTFType::Binary));
+        //nri::ThrowIfFalse(m_sceneImporter->ImportScenesFromFile(appSpec.AssetsDirectory / "flight_helmet" / "FlightHelmet.gltf"));
 
         // TODO: This is currently hardcoded as we know that very first scene will be used for rendering, thus we register its callbacks
         Neb::Scene* scene = m_sceneImporter->ImportedScenes.front();
@@ -85,10 +87,10 @@ namespace Neb
         {
             secondsSinceLastFps = 0.0f;
             NEB_LOG_INFO("Frametime is {:.1f}ms ({:.1f} fps)", timestep * 1000.0f, framerate);
+            m_renderer->SetCurrentFramerate(timestep * 1000.0f);
         }
 
         secondsSinceLastFps += timestep;
-
         m_renderer->RenderSceneDeferred(timestep);
     }
 

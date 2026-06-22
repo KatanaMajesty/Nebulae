@@ -8,7 +8,7 @@ float3 Brdf_GetSpecularF0(in float3 albedo, in float metalness)
 
 float3 Brdf_GetDiffuseReflectance(in float3 albedo, in float metalness)
 {
-    return albedo * (1.0 - metalness);
+    return lerp(albedo, 0.0, metalness);
 }
 
 // Fresnel effect dictates the amount of specular reflection that takes place for
@@ -75,6 +75,21 @@ float3 Ndf_HalfvectorSampleGGXVndf(float3 Ve, float2 alpha2D, float2 u)
 
     // Section 3.4 -> transforming the normal back to the ellipsoid configuration
     return normalize(float3(alpha2D.x * Nh.x, alpha2D.y * Nh.y, max(0.0f, Nh.z)));
+}
+
+// Smith G1 term (masking function) further optimized for GGX distribution (by substituting G_a into G1_GGX)
+float Smith_G1_GGX(float alpha, float NdotS, float alphaSquared, float NdotSSquared)
+{
+    return 2.0f / (sqrt(((alphaSquared * (1.0f - NdotSSquared)) + NdotSSquared) / NdotSSquared) + 1.0f);
+}
+
+// A fraction G2/G1 where G2 is height correlated can be expressed using only G1 terms
+// Source: "Implementing a Simple Anisotropic Rough Diffuse Material with Stochastic Evaluation", Appendix A by Heitz & Dupuy
+float Smith_G2_Over_G1_Height_Correlated(float alpha, float alphaSquared, float NdotL, float NdotV)
+{
+    float G1V = Smith_G1_GGX(alpha, NdotV, alphaSquared, NdotV * NdotV);
+    float G1L = Smith_G1_GGX(alpha, NdotL, alphaSquared, NdotL * NdotL);
+    return G1L / (G1V + G1L - G1V * G1L);
 }
 
 // Schlick approximated the Smith equation for Beckmann. Naty warns that Schlick approximated the wrong version of Smith, 

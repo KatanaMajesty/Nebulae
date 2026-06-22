@@ -2,6 +2,7 @@
 
 #include "../common/Assert.h"
 #include "../common/Log.h"
+#include "../common/Configuration.h"
 
 #include <fstream>
 #include <filesystem>
@@ -81,13 +82,9 @@ namespace Neb::nri
         std::wstring_view targetProfile,
         const std::vector<DxcDefine>& defines, EShaderCompilationFlags flags)
     {
+        bool enableShaderOptimizaion = true;
         // https://strontic.github.io/xcyclopedia/library/dxc.exe-0C1709D4E1787E3EB3E6A35C85714824.html
         static constexpr std::array dxcDefault = {
-#ifdef NEB_DEBUG
-            L"-Od", // no optimization
-#else
-            L"-O3", // max optimization
-#endif
             L"-Zi",  // enable debug information
             L"-WX",  // treat warnings as errors
             L"-Zpr", // enforce row-major ordering
@@ -133,6 +130,12 @@ namespace Neb::nri
 
         if (flags & eShaderCompilationFlag_Enable16BitTypes)
             dxcArguments.push_back(L"-enable-16bit-types");
+
+#ifdef NEB_DEBUG
+        dxcArguments.push_back(Config::GetValue<bool>(EConfigKey::ForceShaderOptimization) ? L"-O3" : L"-Od"); // no optimization
+#else
+        dxcArguments.push_back(L"-O3"); // max optimization
+#endif
 
         D3D12Rc<IDxcCompilerArgs> compilerArgs;
         ThrowIfFailed(m_dxcUtils->BuildArguments(

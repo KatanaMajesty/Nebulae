@@ -25,6 +25,12 @@ namespace Neb
     {
         Mat4 InstanceToWorld;
         Mat4 ViewProj;
+    };
+
+    struct CbMaterialInfo
+    {
+        Vec4 Albedo;
+        Vec2 RoughnessMetalness;
         uint32_t MaterialFlags;
     };
 
@@ -60,6 +66,7 @@ namespace Neb
             UINT backbufferIndex;
             UINT frameIndex;
             float timestep;
+            float lastSecondFramerate;
         };
         void BeginFrame(const RenderInfo& info);
         void EndFrame();
@@ -108,6 +115,8 @@ namespace Neb
         Mat4 m_proj;
 
         bool m_showUI = true;
+        bool m_useNRC = true;
+        bool m_showStats = true;
         struct SceneSunUI
         {
             float roughDiameter = 0.58f; // Rough estimate of sun diameter as seen from Earth
@@ -115,13 +124,16 @@ namespace Neb
             Vec3 radiance = Vec3(20.0f);
         } m_sceneSunUI;
 
-        static constexpr uint32_t MaxPathtracingRecursionDepth = 8;
+        static constexpr uint32_t MaxPathtracingRecursionDepth = 1;
         struct GlobalIlluminationUI
         {
             Vec3 skyColor = Vec3(8.0f);
             int32_t giSamplesPerPixel = 1;
-            int32_t nrcMaxPathVertices = MaxPathtracingRecursionDepth;
+            int32_t nrcMaxPathVertices = 8;
             float throughputThreshold = 0.01f;
+
+            bool learnIrradiance = true;
+            bool includeDirectLighting = true;
         } m_globalIlluminationUI;
 
         void InitGbuffers();
@@ -150,7 +162,8 @@ namespace Neb
         enum EDeferredRendererRoots
         {
             DEFERRED_RENDERER_ROOTS_INSTANCE_INFO = 0,
-            DEFERRED_RENDERER_ROOTS_MATERIAL_TEXTURES = 1,
+            DEFERRED_RENDERER_ROOTS_MATERIAL_INFO_32BIT,
+            DEFERRED_RENDERER_ROOTS_MATERIAL_TEXTURES,
             DEFERRED_RENDERER_ROOTS_NUM_ROOTS,
         };
         nri::RootSignature m_gbufferRS;
@@ -246,17 +259,25 @@ namespace Neb
         nri::ConstantBuffer m_globalConstantsCB;
 
         nrc::ContextSettings m_nrcContextSettings;
-        nrc::FrameSettings m_nrcFrameSettings;
+        nrc::FrameSettings m_nrcFrameSettings = nrc::FrameSettings{
+            .maxExpectedAverageRadianceValue = 20.0f,
+            .terminationHeuristicThreshold = 0.02f,
+            .trainingTerminationHeuristicThreshold = 0.02f,
+            .numTrainingIterations = 1,
+            .learningRate = 0.01
+        };
         nri::Rc<ID3D12StateObject> m_nrcUpdatePSO;
         nri::Rc<ID3D12StateObject> m_nrcQueryPSO;
+        nri::Rc<ID3D12StateObject> m_refTracePSO;
         nri::Shader m_rsUpdatePathtracer;
         nri::Shader m_rsQueryPathtracer;
+        nri::Shader m_rsReferencePathtracer;
         enum EPathtracerRoots
         {
             PATHTRACER_ROOT_NRC_CONSTANTS = 0,
             PATHTRACER_ROOT_GLOBAL_CONSTANTS,
             PATHTRACER_ROOT_NRC_BUFFERS,
-            PATHTRACER_ROOT_NRC_NEBULAE_BUFFERS,
+            //PATHTRACER_ROOT_NRC_NEBULAE_BUFFERS,
             PATHTRACER_ROOT_GBUFFER_TEXTURES,
             PATHTRACER_ROOT_GBUFFER_NORMALS,
             PATHTRACER_ROOT_SCENE_DEPTH,
@@ -266,6 +287,7 @@ namespace Neb
             PATHTRACER_ROOT_BINDLESS_BUFFERS,
             PATHTRACER_ROOT_GEOMETRY_DATA,
             PATHTRACER_ROOT_MATERIAL_DATA,
+            PATHTRACER_ROOT_HDR_OUTPUT,
             PATHTRACER_ROOT_NUM_ROOTS
         };
         nri::RootSignature m_giGlobalRS;
@@ -275,8 +297,10 @@ namespace Neb
         
         nv_helpers_dx12::ShaderBindingTableGenerator m_rsUpdateSBTGenerator;
         nv_helpers_dx12::ShaderBindingTableGenerator m_rsQuerySBTGenerator;
+        nv_helpers_dx12::ShaderBindingTableGenerator m_rsReferenceSBTGenerator;
         nri::Rc<ID3D12Resource> m_rsUpdateSBTBuffer;
         nri::Rc<ID3D12Resource> m_rsQuerySBTBuffer;
+        nri::Rc<ID3D12Resource> m_rsReferenceSBTBuffer;
 
         enum ENRCNebulaeDebugBuffers
         {
